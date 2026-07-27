@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-kgp-blue-950 text-slate-100 dark:bg-kgp-blue-950 dark:text-slate-100;
+  }
+}
+
+/* Glassmorphism Cards */
+.glass-card {
+  @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border border-slate-200/50 dark:border-slate-800/50 shadow-sm rounded-2xl;
+}
+
+.glass-panel {
+  @apply bg-white/90 dark:bg-slate-900/90 backdrop-blur-lg border-r border-slate-200 dark:border-slate-800;
+}
+
+/* Keyframe animations for active/glowing states */
+@keyframes pulse-glow-blue {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(59, 130, 246, 0.4), 0 0 20px rgba(59, 130, 246, 0.2);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.7), 0 0 30px rgba(59, 130, 246, 0.4);
+    transform: scale(1.02);
+  }
+}
+
+@keyframes pulse-glow-orange {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(249, 115, 22, 0.7);
+  }
+}
+
+@keyframes pulse-glow-green {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(34, 197, 94, 0.7);
+  }
+}
+
+.animate-glow-blue {
+  animation: pulse-glow-blue 3s infinite ease-in-out;
+}
+
+.animate-glow-orange {
+  animation: pulse-glow-orange 2.5s infinite ease-in-out;
+}
+
+.animate-glow-green {
+  animation: pulse-glow-green 2.5s infinite ease-in-out;
+}
+
+/* Leaflet Map Custom Styling */
+.leaflet-container {
+  font-family: 'Outfit', 'Inter', sans-serif !important;
+  background-color: #0b0f19 !important;
+  border-radius: 1rem;
+}
+
+.dark .leaflet-popup-content-wrapper,
+.dark .leaflet-popup-tip {
+  background-color: #0f172a !important;
+  color: #f1f5f9 !important;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+}
+
+.leaflet-popup-content-wrapper {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
+}
+
+.leaflet-bar a {
+  background-color: #0f172a !important;
+  color: #f1f5f9 !important;
+  border-color: #1e293b !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: #1e293b !important;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200/20 rounded-full hover:bg-slate-200/40;
+}
