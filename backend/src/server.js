@@ -6,6 +6,8 @@ import { initWsServer } from './services/wsServer.js'
 import { startIngestion } from './services/mqttIngestion.js'
 import { startAutomationEngine } from './services/automationEngine.js'
 
+import { initDb } from './utils/initDb.js'
+
 dotenv.config()
 
 const PORT = process.env.PORT || 4000

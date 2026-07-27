@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { supabase } from '../config/supabase.js';
+import supabase from '../config/supabase.js';
 import { publish } from '../config/mqtt.js';
 import { log } from '../middleware/audit.js';
 

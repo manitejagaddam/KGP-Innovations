@@ -58,8 +58,10 @@ async function fetchWithAuth(endpoint, options = {}) {
 
 const handleResponse = async (res) => {
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ message: res.statusText }));
-    throw new Error(error.message || 'API request failed');
+    const errData = await res.json().catch(() => ({ message: res.statusText }));
+    // Backend might return { error: "msg" } or { message: "msg" } or { error: { message: "msg" } }
+    const errStr = errData.error?.message || errData.error || errData.message || 'API request failed';
+    throw new Error(errStr);
   }
   return res.json();
 };
@@ -70,6 +72,14 @@ export const authApi = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password })
+    });
+    return handleResponse(res);
+  },
+  register: async (name, email, password) => {
+    const res = await fetch(`${API_URL}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password })
     });
     return handleResponse(res);
   },
@@ -325,6 +335,44 @@ export const settingsApi = {
   },
   regenerateKey: async () => {
     const res = await fetchWithAuth('/api/settings/regenerate-key', { method: 'POST' });
+    return handleResponse(res);
+  }
+};
+
+export const firmwareApi = {
+  list: async () => {
+    const res = await fetchWithAuth('/api/firmware');
+    return handleResponse(res);
+  },
+  get: async (id) => {
+    const res = await fetchWithAuth(`/api/firmware/${id}`);
+    return handleResponse(res);
+  },
+  create: async (data) => {
+    const res = await fetchWithAuth('/api/firmware', { method: 'POST', body: JSON.stringify(data) });
+    return handleResponse(res);
+  },
+  update: async (id, data) => {
+    const res = await fetchWithAuth(`/api/firmware/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    return handleResponse(res);
+  },
+  delete: async (id) => {
+    const res = await fetchWithAuth(`/api/firmware/${id}`, { method: 'DELETE' });
+    return handleResponse(res);
+  },
+  push: async (firmwareId, deviceId) => {
+    const res = await fetchWithAuth(`/api/firmware/${firmwareId}/push/${deviceId}`, { method: 'POST' });
+    return handleResponse(res);
+  }
+};
+
+export const pendingDevicesApi = {
+  list: async () => {
+    const res = await fetchWithAuth('/api/devices/pending');
+    return handleResponse(res);
+  },
+  approve: async (id, action) => {
+    const res = await fetchWithAuth(`/api/devices/${id}/approve`, { method: 'PUT', body: JSON.stringify({ action }) });
     return handleResponse(res);
   }
 };

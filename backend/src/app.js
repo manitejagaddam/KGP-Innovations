@@ -14,6 +14,7 @@ import alertRoutes from './routes/alerts.routes.js'
 import analyticsRoutes from './routes/analytics.routes.js'
 import automationRoutes from './routes/automations.routes.js'
 import settingsRoutes from './routes/settings.routes.js'
+import firmwareRoutes from './routes/firmware.routes.js'
 
 dotenv.config()
 
@@ -24,7 +25,7 @@ app.use(helmet())
 
 // CORS — allow only frontend origin
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [process.env.FRONTEND_URL || 'http://localhost:3000', 'http://localhost:3000', 'http://localhost:3000/KGP-Innovations/'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 }))
@@ -53,6 +54,7 @@ app.use('/api/alerts', alertRoutes)
 app.use('/api/analytics', analyticsRoutes)
 app.use('/api/automations', automationRoutes)
 app.use('/api/settings', settingsRoutes)
+app.use('/api/firmware', firmwareRoutes)
 
 // Health check
 app.get('/health', (req, res) => {

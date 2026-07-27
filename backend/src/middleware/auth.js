@@ -27,27 +27,35 @@ export const authenticate = async (req, res, next) => {
     }
 
     // Load user profile from Supabase to get latest role/status
-    const { data: profile, error } = await supabase
-      .from('user_profiles')
-      .select('id, display_name, role, kgp_id, status, vendor_id')
-      .eq('id', decoded.sub)
-      .single()
+    let finalProfile = profile;
+    if (error) {
+      const { data: basicProfile, error: basicErr } = await supabase
+        .from('user_profiles')
+        .select('id, display_name, role, status')
+        .eq('id', decoded.sub)
+        .single()
+      
+      if (basicErr || !basicProfile) {
+        return res.status(401).json({ error: 'User not found' })
+      }
+      finalProfile = { ...basicProfile, kgp_id: null, vendor_id: null };
+    }
 
-    if (error || !profile) {
+    if (!finalProfile) {
       return res.status(401).json({ error: 'User not found' })
     }
 
-    if (profile.status === 'Inactive') {
+    if (finalProfile.status === 'Inactive') {
       return res.status(403).json({ error: 'Account is deactivated' })
     }
 
     req.user = {
       id: decoded.sub,
       email: decoded.email,
-      role: profile.role,
-      kgpId: profile.kgp_id,
-      displayName: profile.display_name,
-      vendorId: profile.vendor_id
+      role: finalProfile.role,
+      kgpId: finalProfile.kgp_id,
+      displayName: finalProfile.display_name,
+      vendorId: finalProfile.vendor_id
     }
 
     next()

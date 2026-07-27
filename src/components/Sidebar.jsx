@@ -13,26 +13,62 @@ import {
   Power, 
   ChevronLeft, 
   ChevronRight,
-  Lightbulb
+  Lightbulb,
+  Calculator,
+  Menu,
+  Cpu,
+  ChevronDown,
+  Droplet,
+  Trash2,
+  Car,
+  Clock,
+  Shield
 } from 'lucide-react'
 
 export default function Sidebar() {
   const { activeTab, setActiveTab, sidebarCollapsed: collapsed, setSidebarCollapsed: setCollapsed } = useApp()
   const { user, logout } = useAuth()
+  const [smartFeaturesOpen, setSmartFeaturesOpen] = useState(false)
 
   const menuItems = [
     { id: 'fleet-overview', label: 'Fleet Overview', icon: Activity, badge: 'Live', badgeColor: 'bg-emerald-500 text-white' },
     { id: 'device-map', label: 'Device Map', icon: Map },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'alerts', label: 'Alerts', icon: AlertTriangle },
+    { id: 'calculator', label: 'Calculator', icon: Calculator },
     { id: 'automations', label: 'Automations', icon: Zap, badge: 'New', badgeColor: 'bg-blue-600 text-white' },
   ]
 
   const adminItems = [
     { id: 'vendors', label: 'Vendors', icon: Briefcase },
     { id: 'users', label: 'Users', icon: Users },
+    { id: 'firmware', label: 'Firmware', icon: Cpu },
+    { id: 'pending-devices', label: 'Pending Approval', icon: Clock },
+    { id: 'menu-config', label: 'Menu Configuration', icon: Menu },
     { id: 'settings', label: 'Settings', icon: Settings },
   ]
+
+  const smartFeatures = [
+    { id: 'sf-tank', label: 'Tank Indicator', icon: Droplet },
+    { id: 'sf-dustbin', label: 'Dustbin', icon: Trash2 },
+    { id: 'sf-water', label: 'Water Quality', icon: Droplet },
+    { id: 'sf-parking', label: 'Car Parking', icon: Car },
+  ]
+
+  // Filter items based on role
+  const isAdmin = user?.role === 'Admin'
+  const isVendor = user?.role === 'Vendor'
+  
+  const filteredMenuItems = menuItems.filter(item => {
+    if (['fleet-overview', 'device-map', 'device-details'].includes(item.id)) return true;
+    if (isAdmin || isVendor) return true;
+    return false;
+  })
+
+  const filteredAdminItems = adminItems.filter(item => {
+    if (['users', 'vendors', 'firmware', 'pending-devices'].includes(item.id)) return isAdmin;
+    return true;
+  })
 
   const handleTabClick = (tabId) => {
     setActiveTab(tabId)
@@ -75,7 +111,7 @@ export default function Sidebar() {
                 IoT Management
               </h3>
             )}
-            {menuItems.map((item) => {
+            {filteredMenuItems.map((item) => {
               const Icon = item.icon
               const isActive = activeTab === item.id || (item.id === 'fleet-overview' && activeTab === 'device-details')
               return (
@@ -111,7 +147,7 @@ export default function Sidebar() {
                 Administration
               </h3>
             )}
-            {adminItems.map((item) => {
+            {filteredAdminItems.map((item) => {
               const Icon = item.icon
               const isActive = activeTab === item.id
               return (
@@ -128,6 +164,47 @@ export default function Sidebar() {
                 </button>
               )
             })}
+
+            {/* Smart Features Dropdown */}
+            <div className="pt-2">
+              <button
+                onClick={() => {
+                  if (collapsed) setCollapsed(false)
+                  setSmartFeaturesOpen(!smartFeaturesOpen)
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group relative text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-slate-200`}
+              >
+                <Cpu className="w-5 h-5 shrink-0 text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300" />
+                {!collapsed && (
+                  <>
+                    <span className="truncate">Smart Features</span>
+                    <ChevronDown className={`ml-auto w-4 h-4 transition-transform ${smartFeaturesOpen ? 'rotate-180' : ''}`} />
+                  </>
+                )}
+              </button>
+              
+              {!collapsed && smartFeaturesOpen && (
+                <div className="mt-1 ml-4 border-l-2 border-slate-200 dark:border-slate-800 pl-2 space-y-1">
+                  {smartFeatures.map(sf => {
+                    const SfIcon = sf.icon
+                    const isSfActive = activeTab === sf.id
+                    return (
+                      <button
+                        key={sf.id}
+                        onClick={() => handleTabClick(sf.id)}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all group
+                          ${isSfActive 
+                            ? 'text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/20' 
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'}`}
+                      >
+                        <SfIcon className="w-4 h-4 shrink-0" />
+                        <span className="truncate">{sf.label}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

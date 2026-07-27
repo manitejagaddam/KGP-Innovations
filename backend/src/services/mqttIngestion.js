@@ -1,5 +1,5 @@
 import { subscribe } from '../config/mqtt.js';
-import { supabase } from '../config/supabase.js';
+import supabase from '../config/supabase.js';
 import { evaluateAlertRules } from './alertEngine.js';
 import { broadcast } from './wsServer.js';
 

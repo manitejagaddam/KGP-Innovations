@@ -38,25 +38,64 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' })
     }
 
-    // Load user profile with role
+    // Load user profile with role (select only guaranteed columns)
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
-      .select('id, display_name, role, kgp_id, status, vendor_id')
+      .select('id, display_name, role, status, kgp_id, vendor_id')
       .eq('id', authData.user.id)
       .single()
 
-    if (profileError || !profile) {
+    let finalProfile = profile;
+    
+    if (profileError) {
+      // If columns don't exist yet (migration not run), try minimal select
+      const { data: basicProfile, error: basicErr } = await supabase
+        .from('user_profiles')
+        .select('id, display_name, role, status')
+        .eq('id', authData.user.id)
+        .single()
+        
+      if (basicErr) {
+        // If it's PGRST116 (0 rows), the user exists in Auth but has no profile. Auto-create it.
+        if (basicErr.code === 'PGRST116' || profileError.code === 'PGRST116') {
+          console.log(`Auto-creating missing profile for ${email}`);
+          const { data: newProfile, error: insertErr } = await supabase
+            .from('user_profiles')
+            .insert([{
+              id: authData.user.id,
+              email: email.toLowerCase().trim(),
+              display_name: email.split('@')[0],
+              role: 'viewer',
+              status: 'active'
+            }])
+            .select('id, display_name, role, status')
+            .single()
+            
+          if (insertErr || !newProfile) {
+            console.error('Auto-create insert error:', insertErr);
+            return res.status(500).json({ error: 'User profile missing and auto-creation failed: ' + (insertErr?.message || 'unknown error') })
+          }
+          finalProfile = { ...newProfile, kgp_id: null, vendor_id: null };
+        } else {
+          return res.status(500).json({ error: 'User profile not found — contact administrator' })
+        }
+      } else {
+        finalProfile = { ...basicProfile, kgp_id: null, vendor_id: null };
+      }
+    }
+
+    if (!finalProfile) {
       return res.status(500).json({ error: 'User profile not found — contact administrator' })
     }
 
-    if (profile.status === 'Inactive') {
+    if (finalProfile.status === 'Inactive') {
       return res.status(403).json({ error: 'Your account has been deactivated. Contact your administrator.' })
     }
 
     const { accessToken, refreshToken } = generateTokens(authData.user.id, email)
 
     await log({
-      userId: profile.id,
+      userId: finalProfile.id,
       userEmail: email,
       action: 'User Login',
       targetType: 'auth',
@@ -65,18 +104,102 @@ router.post('/login', async (req, res) => {
 
     return res.json({
       user: {
-        id: profile.id,
+        id: finalProfile.id,
         email,
-        displayName: profile.display_name,
-        role: profile.role,
-        kgpId: profile.kgp_id,
-        vendorId: profile.vendor_id
+        displayName: finalProfile.display_name,
+        role: finalProfile.role || 'viewer',
+        kgpId: finalProfile.kgp_id,
+        vendorId: finalProfile.vendor_id
       },
       accessToken,
       refreshToken
     })
   } catch (err) {
     console.error('Login error:', err)
+    res.status(500).json({ error: 'Internal server error' })
+  }
+})
+
+// POST /api/auth/register
+router.post('/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body
+
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'Name, email, and password are required' })
+    }
+
+    // 1. Create user in Supabase Auth using admin API (bypasses rate limits and email confirmation)
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: email.toLowerCase().trim(),
+      password,
+      email_confirm: true,
+      user_metadata: {
+        display_name: name
+      }
+    })
+
+    if (authError) {
+      console.error('Supabase Admin CreateUser Error:', authError)
+      return res.status(400).json({ error: authError.message })
+    }
+
+    const userId = authData.user?.id
+    if (!userId) {
+      return res.status(500).json({ error: 'User creation failed' })
+    }
+
+    // 2. Insert into user_profiles
+    // For testing purposes, auto-assign roles based on the email address
+    let assignedRole = 'viewer';
+    if (email.toLowerCase().includes('admin')) {
+      assignedRole = 'Admin';
+    } else if (email.toLowerCase().includes('vendor')) {
+      assignedRole = 'Vendor';
+    }
+
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .insert([
+        {
+          id: userId,
+          email: email.toLowerCase().trim(),
+          display_name: name,
+          role: assignedRole, 
+          status: 'active'
+        }
+      ])
+
+    if (profileError) {
+      // Best effort cleanup if profile insert fails
+      console.error('Profile creation failed:', profileError)
+      return res.status(500).json({ error: 'Failed to create user profile' })
+    }
+
+    // Generate our backend JWT tokens to login immediately
+    const { accessToken, refreshToken } = generateTokens(userId, email)
+
+    await log({
+      userId: userId,
+      userEmail: email,
+      action: 'User Registered',
+      targetType: 'auth',
+      ipAddress: req.ip
+    })
+
+    return res.status(201).json({
+      user: {
+        id: userId,
+        email,
+        displayName: name,
+        role: 'viewer',
+        status: 'active'
+      },
+      accessToken,
+      refreshToken
+    })
+  } catch (err) {
+    console.error('Registration error:', err)
     res.status(500).json({ error: 'Internal server error' })
   }
 })

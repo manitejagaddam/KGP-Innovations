@@ -15,13 +15,25 @@ import DeviceMap from './pages/DeviceMap'
 import Analytics from './pages/Analytics'
 import Alerts from './pages/Alerts'
 import Automations from './pages/Automations'
+import Calculator from './pages/Calculator'
 import Users from './pages/Users'
 import Vendors from './pages/Vendors'
 import Settings from './pages/Settings'
+import Firmware from './pages/Firmware'
+
+function AccessDenied() {
+  return (
+    <div className="flex flex-col items-center justify-center h-64 text-center">
+      <div className="text-6xl mb-4">🔒</div>
+      <h2 className="text-2xl font-bold text-slate-200 mb-2">Access Denied</h2>
+      <p className="text-slate-400">You don't have permission to view this page.</p>
+    </div>
+  )
+}
 
 function DashboardShell() {
   const { activeTab, setDevices, setAlerts, sidebarCollapsed } = useApp()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
 
   // Connect WebSocket on auth success
   useEffect(() => {
@@ -61,10 +73,25 @@ function DashboardShell() {
         return <Alerts />
       case 'automations':
         return <Automations />
+      case 'calculator':
+        return <Calculator />
       case 'users':
         return <Users />
+      case 'menu-config':
+        return <div className="p-8 text-center text-slate-400">Menu Configuration (Coming Soon)</div>
+      case 'sf-tank':
+      case 'sf-dustbin':
+      case 'sf-water':
+      case 'sf-parking':
+        return <div className="p-8 text-center text-slate-400">Smart Feature Module (Coming Soon)</div>
       case 'vendors':
-        return <Vendors />
+        return user?.role === 'Admin' ? <Vendors /> : <AccessDenied />
+      case 'users':
+        return user?.role === 'Admin' ? <Users /> : <AccessDenied />
+      case 'firmware':
+        return user?.role === 'Admin' ? <Firmware /> : <AccessDenied />
+      case 'pending-devices':
+        return user?.role === 'Admin' ? <div className="p-8 text-center text-slate-400">Pending Device Approvals (See Firmware Tab)</div> : <AccessDenied />
       case 'settings':
         return <Settings />
       default:

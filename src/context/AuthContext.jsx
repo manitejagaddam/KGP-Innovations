@@ -26,21 +26,13 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        if (token === 'mock-token') {
-          setUser(mockUser);
-        } else {
-          const data = await authApi.me();
-          setUser(data.user || data);
-        }
+        const data = await authApi.me();
+        setUser(data.user || data);
       } catch (error) {
-        console.warn('Auth verification failed, falling back to mock mode if token is mock-token', error);
-        if (token === 'mock-token') {
-          setUser(mockUser);
-        } else {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          setUser(null);
-        }
+        console.error('Auth verification failed', error);
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
@@ -59,32 +51,29 @@ export const AuthProvider = ({ children }) => {
       setUser(data.user);
       return data;
     } catch (err) {
-      console.warn('Login failed, using mock demo mode', err);
-      // Demo Fallback
-      localStorage.setItem('accessToken', 'mock-token');
-      const demoUser = { ...mockUser, email, displayName: email.split('@')[0] };
-      setUser(demoUser);
-      return { user: demoUser, accessToken: 'mock-token' };
+      console.error('Login failed:', err);
+      throw err;
     }
   };
 
   const register = async (name, email, password) => {
     try {
-      // If we had a real register endpoint we would call it here
-      // const data = await authApi.register(name, email, password);
-      throw new Error('Backend registration not connected in this demo, using mock registration.');
+      const data = await authApi.register(name, email, password);
+      localStorage.setItem('accessToken', data.accessToken);
+      if (data.refreshToken) {
+        localStorage.setItem('refreshToken', data.refreshToken);
+      }
+      setUser(data.user);
+      return data;
     } catch (err) {
-      console.warn('Register fallback, using mock demo mode', err);
-      localStorage.setItem('accessToken', 'mock-token');
-      const demoUser = { ...mockUser, email, displayName: name };
-      setUser(demoUser);
-      return { user: demoUser, accessToken: 'mock-token' };
+      console.error('Registration failed:', err);
+      throw err;
     }
   };
 
   const logout = async () => {
     try {
-      if (localStorage.getItem('accessToken') && localStorage.getItem('accessToken') !== 'mock-token') {
+      if (localStorage.getItem('accessToken')) {
         await authApi.logout();
       }
     } catch (e) {
