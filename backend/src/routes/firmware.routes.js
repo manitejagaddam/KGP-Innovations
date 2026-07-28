@@ -15,7 +15,8 @@ router.get('/', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('API Error in backend\src\routes\firmware.routes.js:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -26,7 +27,8 @@ router.get('/:id', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('API Error in backend\src\routes\firmware.routes.js:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -42,7 +44,8 @@ router.post('/', adminOnly, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: 'CREATE_FIRMWARE', targetId: data.id, targetType: 'firmware', ipAddress: req.ip });
     res.status(201).json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('API Error in backend\src\routes\firmware.routes.js:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -54,7 +57,8 @@ router.put('/:id', adminOnly, async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('API Error in backend\src\routes\firmware.routes.js:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -65,7 +69,8 @@ router.delete('/:id', adminOnly, async (req, res) => {
     if (error) throw error;
     res.status(204).send();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('API Error in backend\src\routes\firmware.routes.js:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -87,7 +92,8 @@ router.post('/:id/push/:deviceId', adminOnly, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: 'OTA_PUSH', targetId: deviceId, targetType: 'device', reason: `Pushed firmware ${firmware.name} v${firmware.version}`, ipAddress: req.ip });
     res.json({ message: `OTA push initiated for device ${deviceId}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('API Error in backend\src\routes\firmware.routes.js:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 

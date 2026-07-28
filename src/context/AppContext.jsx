@@ -162,6 +162,77 @@ export const AppProvider = ({ children }) => {
     addLog('Schedule Edit', 'admin', `Updated schedule for device ${deviceId}`, deviceId)
   }
 
+  // User Actions
+  const addUser = async (userData) => {
+    try {
+      const data = await usersApi.create({
+        ...userData,
+        password: userData.password || 'kgp12345' // Default password for newly added users
+      });
+      setUsers(prev => [data, ...prev]);
+      return { success: true, data };
+    } catch (err) {
+      console.error('Add user error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  const updateUser = async (id, userData) => {
+    try {
+      const data = await usersApi.update(id, userData);
+      setUsers(prev => prev.map(u => u.id === id ? data : u));
+      return { success: true, data };
+    } catch (err) {
+      console.error('Update user error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  const deleteUser = async (id) => {
+    try {
+      await usersApi.delete(id);
+      setUsers(prev => prev.filter(u => u.id !== id));
+      return { success: true };
+    } catch (err) {
+      console.error('Delete user error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Vendor Actions
+  const addVendor = async (vendorData) => {
+    try {
+      const data = await vendorsApi.create(vendorData);
+      setVendors(prev => [data, ...prev]);
+      return { success: true, data };
+    } catch (err) {
+      console.error('Add vendor error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  const updateVendor = async (id, vendorData) => {
+    try {
+      const data = await vendorsApi.update(id, vendorData);
+      setVendors(prev => prev.map(v => v.id === id ? data : v));
+      return { success: true, data };
+    } catch (err) {
+      console.error('Update vendor error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
+  const deleteVendor = async (id) => {
+    try {
+      await vendorsApi.delete(id);
+      setVendors(prev => prev.filter(v => v.id !== id));
+      return { success: true };
+    } catch (err) {
+      console.error('Delete vendor error:', err);
+      return { success: false, error: err.message };
+    }
+  }
+
   const selectedDevice = devices.find(d => d.id === selectedDeviceId) || devices[0] || null
 
   return (
@@ -171,8 +242,8 @@ export const AppProvider = ({ children }) => {
       devices, setDevices,
       selectedDeviceId, setSelectedDeviceId,
       selectedDevice,
-      users, setUsers,
-      vendors, setVendors,
+      users, setUsers, addUser, updateUser, deleteUser,
+      vendors, setVendors, addVendor, updateVendor, deleteVendor,
       alerts, setAlerts,
       updateAlertStatus, triggerAlert,
       logs, addLog,

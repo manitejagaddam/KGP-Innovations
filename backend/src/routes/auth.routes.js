@@ -151,7 +151,7 @@ router.post('/register', async (req, res) => {
 
     // 2. Insert into user_profiles
     // For testing purposes, auto-assign roles based on the email address
-    let assignedRole = 'viewer';
+    let assignedRole = 'Viewer';
     if (email.toLowerCase().includes('admin')) {
       assignedRole = 'Admin';
     } else if (email.toLowerCase().includes('vendor')) {
@@ -173,6 +173,7 @@ router.post('/register', async (req, res) => {
     if (profileError) {
       // Best effort cleanup if profile insert fails
       console.error('Profile creation failed:', profileError)
+      await supabase.auth.admin.deleteUser(userId) // Clean up orphaned auth user
       return res.status(500).json({ error: 'Failed to create user profile' })
     }
 
@@ -192,7 +193,7 @@ router.post('/register', async (req, res) => {
         id: userId,
         email,
         displayName: name,
-        role: 'viewer',
+        role: assignedRole,
         status: 'active'
       },
       accessToken,
@@ -260,13 +261,32 @@ router.get('/me', async (req, res) => {
     }
 
     const token = authHeader.split(' ')[1]
-    const decoded = jwt.verify(token, process.env.JWT_SECRET)
+    let decoded
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET)
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid or expired token' })
+    }
 
-    const { data: profile } = await supabase
+    // Try full select first, fallback to minimal if columns missing
+    let profile;
+    const { data: fullProfile, error: fullErr } = await supabase
       .from('user_profiles')
       .select('id, display_name, role, kgp_id, status, vendor_id, created_at')
       .eq('id', decoded.sub)
       .single()
+
+    if (fullErr) {
+      const { data: basicProfile, error: basicErr } = await supabase
+        .from('user_profiles')
+        .select('id, display_name, role, status, created_at')
+        .eq('id', decoded.sub)
+        .single()
+      if (basicErr || !basicProfile) return res.status(404).json({ error: 'User not found' })
+      profile = { ...basicProfile, kgp_id: null, vendor_id: null }
+    } else {
+      profile = fullProfile
+    }
 
     if (!profile) return res.status(404).json({ error: 'User not found' })
 
@@ -281,6 +301,7 @@ router.get('/me', async (req, res) => {
       createdAt: profile.created_at
     })
   } catch (err) {
+    console.error('/me error:', err)
     return res.status(401).json({ error: 'Invalid token' })
   }
 })

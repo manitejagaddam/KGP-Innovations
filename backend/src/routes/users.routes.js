@@ -27,8 +27,10 @@ router.get('/', async (req, res) => {
     if (error) throw error;
 
     res.json({ data, meta: { total: count, page, limit } });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({ data, meta: { total: count, page, limit } });
+  } catch (err) {
+    console.error('GET /api/users error:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
@@ -43,8 +45,10 @@ router.get('/:id', async (req, res) => {
 
     if (error) throw error;
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    console.error('GET /api/users/:id error:', err);
+    res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
 
@@ -74,8 +78,10 @@ router.post('/', adminOnly, async (req, res) => {
     }
 
     res.status(201).json(profileData);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(201).json(profileData);
+  } catch (err) {
+    console.error('POST /api/users error:', err);
+    res.status(500).json({ error: 'Failed to create user' });
   }
 });
 
@@ -92,8 +98,10 @@ router.put('/:id', adminOnly, async (req, res) => {
 
     if (error) throw error;
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    console.error('PUT /api/users/:id error:', err);
+    res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
@@ -108,8 +116,10 @@ router.delete('/:id', adminOnly, async (req, res) => {
     if (profileError) throw profileError;
 
     res.status(204).send();
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(204).send();
+  } catch (err) {
+    console.error('DELETE /api/users/:id error:', err);
+    res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
@@ -135,8 +145,10 @@ router.patch('/:id/status', adminOnly, async (req, res) => {
 
     if (error) throw error;
     res.json(data);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    console.error('PATCH /api/users/:id/status error:', err);
+    res.status(500).json({ error: 'Failed to update user status' });
   }
 });
 

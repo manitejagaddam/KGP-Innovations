@@ -12,6 +12,7 @@ export default function Users() {
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newRole, setNewRole] = useState('Worker')
+  const [newVendorId, setNewVendorId] = useState('')
 
   // Table pagination state
   const [rowsPerPage, setRowsPerPage] = useState(10)
@@ -40,13 +41,15 @@ export default function Users() {
     addUser({
       name: newName,
       email: newEmail,
-      role: newRole
+      role: newRole,
+      vendor_id: newRole === 'Vendor' ? newVendorId : null
     })
 
     // Reset and close
     setNewName('')
     setNewEmail('')
     setNewRole('Worker')
+    setNewVendorId('')
     setIsAddModalOpen(false)
   }
 
@@ -318,6 +321,26 @@ export default function Users() {
                   <option value="Admin">Admin</option>
                 </select>
               </div>
+
+              {/* Vendor Selection (only visible if Role is Vendor) */}
+              {newRole === 'Vendor' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">
+                    Select Vendor Group
+                  </label>
+                  <select
+                    required
+                    value={newVendorId}
+                    onChange={(e) => setNewVendorId(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 focus:border-blue-500 text-slate-900 dark:text-slate-100 rounded-xl outline-none font-bold"
+                  >
+                    <option value="" disabled>-- Select a Vendor --</option>
+                    {useApp().vendors.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-2">

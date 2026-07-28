@@ -26,7 +26,8 @@ router.get('/', async (req, res) => {
     
     res.json(formattedData);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('API Error in backend\src\routes\vendors.routes.js:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -48,7 +49,8 @@ router.get('/:id', async (req, res) => {
     
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('API Error in backend\src\routes\vendors.routes.js:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -65,7 +67,8 @@ router.post('/', adminOnly, async (req, res) => {
     if (error) throw error;
     res.status(201).json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('API Error in backend\src\routes\vendors.routes.js:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -85,7 +88,8 @@ router.put('/:id', adminOnly, async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('API Error in backend\src\routes\vendors.routes.js:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
@@ -111,7 +115,8 @@ router.delete('/:id', adminOnly, async (req, res) => {
     
     res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('API Error in backend\src\routes\vendors.routes.js:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 

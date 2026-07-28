@@ -27,6 +27,12 @@ export const authenticate = async (req, res, next) => {
     }
 
     // Load user profile from Supabase to get latest role/status
+    const { data: profile, error } = await supabase
+      .from('user_profiles')
+      .select('id, display_name, role, kgp_id, status, vendor_id')
+      .eq('id', decoded.sub)
+      .single()
+
     let finalProfile = profile;
     if (error) {
       const { data: basicProfile, error: basicErr } = await supabase
