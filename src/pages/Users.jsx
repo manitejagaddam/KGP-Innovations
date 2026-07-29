@@ -20,9 +20,9 @@ export default function Users() {
 
   // Filter logic
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          user.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesSearch = (user.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          (user.id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (user.email || '').toLowerCase().includes(searchQuery.toLowerCase())
     const matchesRole = roleFilter === 'All' || user.role === roleFilter
     const matchesStatus = statusFilter === 'All' || user.status === statusFilter
     
@@ -74,11 +74,84 @@ export default function Users() {
     }
   }
 
+  // Role summary counts
+  const adminCount = users.filter(u => u.role === 'Admin').length
+  const vendorCount = users.filter(u => u.role === 'Vendor').length
+  const viewerCount = users.filter(u => !['Admin','Vendor'].includes(u.role)).length
+
   return (
     <div className="space-y-6">
-      
-      {/* Search and Filters Header block */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+
+      {/* ── Page Header ── */}
+      <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">👥 Users & Roles</h2>
+          <p className="text-sm text-gray-400 mt-1">Role-based access controls what a user can view or change</p>
+        </div>
+        <button
+          onClick={() => setIsAddModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
+        >
+          <UserPlus size={15} /> Add User
+        </button>
+      </div>
+
+      {/* ── Role Permissions Matrix + Summary Stats ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+        {/* Role Permissions Matrix */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <h3 className="font-bold text-sm text-gray-900 mb-3">Role Permissions</h3>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-gray-400 uppercase tracking-wider">
+                <th className="text-left py-2 pr-4 font-bold">Capability</th>
+                <th className="text-center py-2 px-2 font-bold">Admin</th>
+                <th className="text-center py-2 px-2 font-bold">Vendor</th>
+                <th className="text-center py-2 px-2 font-bold">Viewer</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 text-gray-700">
+              {[
+                { cap: 'View devices & telemetry', admin: true, vendor: true, viewer: true },
+                { cap: 'Control devices (ON/OFF)', admin: true, vendor: true, viewer: false },
+                { cap: 'Push OTA firmware updates', admin: true, vendor: false, viewer: false },
+                { cap: 'Generate reports & bills', admin: true, vendor: true, viewer: false },
+                { cap: 'Manage users', admin: true, vendor: false, viewer: false },
+                { cap: 'System settings', admin: true, vendor: false, viewer: false },
+              ].map(row => (
+                <tr key={row.cap}>
+                  <td className="py-2.5 pr-4 text-xs font-medium">{row.cap}</td>
+                  <td className="text-center py-2.5 px-2">{row.admin ? '✅' : '—'}</td>
+                  <td className="text-center py-2.5 px-2">{row.vendor ? '✅' : '—'}</td>
+                  <td className="text-center py-2.5 px-2">{row.viewer ? '✅' : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Summary Stats */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+          <h3 className="font-bold text-sm text-gray-900 mb-3">Summary</h3>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Total Users', value: users.length, color: '#4F6EF7', bg: '#EEF1FE', icon: '👥' },
+              { label: 'Admins', value: adminCount, color: '#7C5CE0', bg: '#F1ECFC', icon: '🛡️' },
+              { label: 'Vendors', value: vendorCount, color: '#0891B2', bg: '#E4F6FA', icon: '🏢' },
+              { label: 'Viewers', value: viewerCount, color: '#0FA968', bg: '#E7F8F0', icon: '👁️' },
+            ].map(s => (
+              <div key={s.label} className="rounded-xl p-3" style={{ background: s.bg }}>
+                <div className="text-lg">{s.icon}</div>
+                <div className="text-2xl font-black mt-1" style={{ color: s.color }}>{s.value}</div>
+                <div className="text-xs font-semibold" style={{ color: s.color, opacity: 0.75 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      {/* Controls Bar: Search, Filters, and Add Button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-xl shadow-sm">
         
         {/* Search & Filters */}
         <div className="flex flex-wrap items-center gap-3 flex-1">

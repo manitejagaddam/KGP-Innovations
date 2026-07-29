@@ -22,12 +22,37 @@ router.get('/', async (req, res) => {
 // PUT /api/settings
 router.put('/', adminOnly, async (req, res) => {
   try {
-    const { org_name, org_timezone, notify_email, notify_sms, notify_push, alert_email_to, telemetry_retention_days } = req.body
+    const {
+      org_name, org_timezone, notify_email, notify_sms, notify_push,
+      alert_email_to, telemetry_retention_days,
+      // Billing fields
+      tariff_rate, fixed_charge,
+      // MQTT config fields
+      mqtt_url, mqtt_username, mqtt_password, mqtt_base_topic
+    } = req.body
+
     const { data: current } = await supabase.from('settings').select('id').limit(1).single()
     if (!current) return res.status(404).json({ error: 'Settings not initialized' })
+
+    // Build update payload — only include fields that were provided
+    const updatePayload = { updated_at: new Date().toISOString() }
+    if (org_name !== undefined) updatePayload.org_name = org_name
+    if (org_timezone !== undefined) updatePayload.org_timezone = org_timezone
+    if (notify_email !== undefined) updatePayload.notify_email = notify_email
+    if (notify_sms !== undefined) updatePayload.notify_sms = notify_sms
+    if (notify_push !== undefined) updatePayload.notify_push = notify_push
+    if (alert_email_to !== undefined) updatePayload.alert_email_to = alert_email_to
+    if (telemetry_retention_days !== undefined) updatePayload.telemetry_retention_days = telemetry_retention_days
+    if (tariff_rate !== undefined) updatePayload.tariff_rate = Number(tariff_rate)
+    if (fixed_charge !== undefined) updatePayload.fixed_charge = Number(fixed_charge)
+    if (mqtt_url !== undefined) updatePayload.mqtt_url = mqtt_url
+    if (mqtt_username !== undefined) updatePayload.mqtt_username = mqtt_username
+    if (mqtt_password !== undefined) updatePayload.mqtt_password = mqtt_password
+    if (mqtt_base_topic !== undefined) updatePayload.mqtt_base_topic = mqtt_base_topic
+
     const { data, error } = await supabase
       .from('settings')
-      .update({ org_name, org_timezone, notify_email, notify_sms, notify_push, alert_email_to, telemetry_retention_days, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('id', current.id)
       .select()
       .single()
@@ -35,9 +60,11 @@ router.put('/', adminOnly, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: 'Settings Updated', targetType: 'settings', ipAddress: req.ip })
     return res.json(data)
   } catch (err) {
+    console.error('Settings update error:', err)
     res.status(500).json({ error: 'Failed to update settings' })
   }
 })
+
 
 // POST /api/settings/regenerate-key
 router.post('/regenerate-key', adminOnly, async (req, res) => {

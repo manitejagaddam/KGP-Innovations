@@ -1,42 +1,36 @@
-import React, { useState, useEffect } from 'react';
-import { firmwareApi, pendingDevicesApi } from '../services/api';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { Cpu, Upload, Code, Check, X, Play } from 'lucide-react';
+import { firmwareApi } from '../services/api';
+import { getTypeInfo } from '../config/deviceTypes';
 import { useToast } from '../components/Toast';
 
 export default function Firmware() {
+  const { devices } = useApp();
   const { user } = useAuth();
   const toast = useToast();
   
   const [firmwares, setFirmwares] = useState([]);
-  const [pendingDevices, setPendingDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isPushModalOpen, setIsPushModalOpen] = useState(false);
+  // Modals state
+  const [pushModalDevice, setPushModalDevice] = useState(null);
+  const [codeModalFirmware, setCodeModalFirmware] = useState(null);
   
-  const [formData, setFormData] = useState({ name: '', version: '', platform: 'Arduino', description: '', source_code: '' });
-  const [pushData, setPushData] = useState({ firmwareId: null, deviceId: '' });
+  // Progress simulation for demo purposes
+  const [updatingDevices, setUpdatingDevices] = useState({});
 
   const isAdmin = user?.role === 'Admin';
 
-  const arduinoTemplate = `#include <Arduino.h>\n\nconst char* API_KEY = "{API_KEY}";\nconst char* DEVICE_ID = "{DEVICE_ID}";\nconst char* MQTT_BROKER = "{MQTT_BROKER}";\n\nvoid setup() {\n  Serial.begin(115200);\n  // Initialize your sensors here\n}\n\nvoid loop() {\n  // Send telemetry: {"v":voltage,"a":current,"t":temperature}\n  delay(3000);\n}`;
-  const esp32Template = `#include <WiFi.h>\n#include <PubSubClient.h>\n\nconst char* WIFI_SSID = "{WIFI_SSID}";\nconst char* WIFI_PASS = "{WIFI_PASS}";\nconst char* MQTT_HOST = "{MQTT_BROKER}";\nconst char* API_KEY = "{API_KEY}";\nconst char* DEVICE_ID = "{DEVICE_ID}";\n\nvoid setup() {\n  WiFi.begin(WIFI_SSID, WIFI_PASS);\n  // Connect to MQTT broker\n  // Subscribe to: devices/{DEVICE_ID}/command\n  // Publish to: devices/{DEVICE_ID}/telemetry\n}\n\nvoid loop() {\n  // Read sensors and publish JSON telemetry\n  delay(3000);\n}`;
-
   useEffect(() => {
-    loadData();
+    loadFirmwares();
   }, []);
 
-  const loadData = async () => {
+  const loadFirmwares = async () => {
     setLoading(true);
     try {
       const fwRes = await firmwareApi.list();
       setFirmwares(Array.isArray(fwRes) ? fwRes : fwRes.data || []);
-      
-      if (isAdmin) {
-        const pdRes = await pendingDevicesApi.list();
-        setPendingDevices(Array.isArray(pdRes) ? pdRes : pdRes.data || []);
-      }
     } catch (err) {
       console.error(err);
       toast.error('Failed to load firmware data');
@@ -45,197 +39,302 @@ export default function Firmware() {
     }
   };
 
-  const handlePlatformChange = (e) => {
-    const platform = e.target.value;
-    setFormData({ 
-      ...formData, 
-      platform,
-      source_code: platform === 'ESP32' ? esp32Template : arduinoTemplate
-    });
+  const getLatestFirmware = (device) => {
+    // Attempt to match firmware platform to device type or platform
+    const eligible = firmwares.filter(fw => 
+      fw.platform === device.platform || fw.platform === device.type || fw.platform === 'Arduino' // Fallback
+    );
+    if (!eligible.length) return null;
+    // Assuming version strings can be sorted, or just take the last one
+    return eligible[eligible.length - 1];
   };
 
-  const handleSaveFirmware = async (e) => {
-    e.preventDefault();
-    try {
-      await firmwareApi.create(formData);
-      toast.success('Firmware created successfully');
-      setIsModalOpen(false);
-      loadData();
-    } catch (err) {
-      toast.error('Failed to create firmware');
+  const getDeviceStatus = (device) => {
+    if (updatingDevices[device.id]) return 'Updating';
+    
+    const currentVersion = device.firmware_version || device.firmware || 'Unknown';
+    const latestFw = getLatestFirmware(device);
+    
+    if (!latestFw) return 'Up to Date'; // or Unknown
+    if (currentVersion === 'Unknown' || currentVersion !== latestFw.version) {
+      return 'Update Available';
     }
+    return 'Up to Date';
   };
 
-  const handlePushOTA = async (e) => {
-    e.preventDefault();
+  const handlePushOTA = async (firmwareId, deviceId) => {
     try {
-      // Assuming a push OTA endpoint exists
-      await firmwareApi.push(pushData.firmwareId, pushData.deviceId);
+      setPushModalDevice(null);
+      // Simulate progress start
+      setUpdatingDevices(prev => ({ ...prev, [deviceId]: 10 }));
+      
+      await firmwareApi.push(firmwareId, deviceId);
       toast.success('OTA Push Initiated');
-      setIsPushModalOpen(false);
+      
+      // Simulate progress
+      let progress = 10;
+      const interval = setInterval(() => {
+        progress += 20;
+        if (progress >= 100) {
+          clearInterval(interval);
+          setUpdatingDevices(prev => {
+            const next = { ...prev };
+            delete next[deviceId];
+            return next;
+          });
+          toast.success(`Device ${deviceId} updated successfully`);
+        } else {
+          setUpdatingDevices(prev => ({ ...prev, [deviceId]: progress }));
+        }
+      }, 1000);
+      
     } catch (err) {
       toast.error('Failed to push OTA');
+      setUpdatingDevices(prev => {
+        const next = { ...prev };
+        delete next[deviceId];
+        return next;
+      });
     }
   };
 
-  const handleApprove = async (id) => {
-    try {
-      await pendingDevicesApi.approve(id);
-      toast.success('Device approved');
-      loadData();
-    } catch (err) {
-      toast.error('Failed to approve device');
+  const handlePushAll = () => {
+    if (!isAdmin) return;
+    const eligibleDevices = devices.filter(d => getDeviceStatus(d) === 'Update Available');
+    if (eligibleDevices.length === 0) {
+      toast.error('No eligible devices for update');
+      return;
     }
+    eligibleDevices.forEach(d => {
+      const latestFw = getLatestFirmware(d);
+      if (latestFw) {
+        handlePushOTA(latestFw.id, d.id);
+      }
+    });
+    toast.success(`Initiated update for ${eligibleDevices.length} devices`);
   };
 
-  const handleReject = async (id) => {
-    try {
-      await pendingDevicesApi.reject(id);
-      toast.success('Device rejected');
-      loadData();
-    } catch (err) {
-      toast.error('Failed to reject device');
-    }
+  const handleCopyCode = (code) => {
+    navigator.clipboard.writeText(code);
+    toast.success('Code copied to clipboard');
+  };
+
+  const handleDownloadCode = (fw) => {
+    const element = document.createElement("a");
+    const file = new Blob([fw.source_code], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = `${fw.name || 'firmware'}.ino`;
+    document.body.appendChild(element); // Required for this to work in FireFox
+    element.click();
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-            <Cpu className="text-blue-500" /> Firmware Management
+          <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+            ⬆️ OTA Firmware Updates
           </h2>
-          <p className="text-slate-400 text-sm mt-1">Manage device firmware versions and OTA updates</p>
+          <p className="text-gray-500 text-sm mt-1">Push firmware remotely to any device type and track rollout</p>
         </div>
         {isAdmin && (
-          <button onClick={() => { setFormData({ name: '', version: '', platform: 'Arduino', description: '', source_code: arduinoTemplate }); setIsModalOpen(true); }} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl transition-colors font-medium">
-            <Upload size={18} /> New Firmware
+          <button 
+            onClick={handlePushAll}
+            className="flex items-center gap-2 bg-[#4F6EF7] hover:bg-[#4F6EF7]/90 text-white px-4 py-2 rounded-xl transition-colors font-medium shadow-sm"
+          >
+            ⬆️ Push Update to All Eligible
           </button>
         )}
       </div>
 
-      <div className="glass-card bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-900/50 text-slate-400">
-            <tr>
-              <th className="p-4">Name</th>
-              <th className="p-4">Version</th>
-              <th className="p-4">Platform</th>
-              <th className="p-4">Description</th>
-              <th className="p-4">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-700/50">
-            {firmwares.map(fw => (
-              <tr key={fw.id} className="hover:bg-slate-700/20 text-slate-300">
-                <td className="p-4 font-medium">{fw.name}</td>
-                <td className="p-4"><span className="px-2 py-1 bg-slate-700 rounded text-xs">{fw.version}</span></td>
-                <td className="p-4">{fw.platform}</td>
-                <td className="p-4 text-slate-400">{fw.description}</td>
-                <td className="p-4 flex gap-2">
-                  {isAdmin && (
-                    <button onClick={() => { setPushData({ firmwareId: fw.id, deviceId: '' }); setIsPushModalOpen(true); }} className="p-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-colors" title="Push OTA">
-                      <Play size={16} />
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {firmwares.length === 0 && !loading && (
+      {/* Main Table */}
+      <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-gray-50 text-gray-500 uppercase text-xs font-semibold">
               <tr>
-                <td colSpan="5" className="p-8 text-center text-slate-500">No firmware versions available</td>
+                <th className="p-4">Device</th>
+                <th className="p-4">Type</th>
+                <th className="p-4">Current Version</th>
+                <th className="p-4">Latest Version</th>
+                <th className="p-4">Status</th>
+                <th className="p-4">Action</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {devices.map(device => {
+                const currentVersion = device.firmware_version || device.firmware || 'Unknown';
+                const latestFw = getLatestFirmware(device);
+                const status = getDeviceStatus(device);
+                const typeInfo = getTypeInfo(device.type);
+                
+                return (
+                  <tr key={device.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="p-4 font-medium text-gray-800">
+                      {device.name || device.id}
+                    </td>
+                    <td className="p-4 text-gray-600">
+                      <div className="flex items-center gap-2">
+                        <span>{typeInfo.icon || '📦'}</span>
+                        <span>{typeInfo.label || device.type}</span>
+                      </div>
+                    </td>
+                    <td className="p-4 text-gray-600">
+                      {currentVersion}
+                    </td>
+                    <td className="p-4 text-gray-600">
+                      {latestFw ? latestFw.version : 'N/A'}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-2">
+                        <span className={`inline-flex w-fit px-2.5 py-1 rounded-full text-xs font-medium
+                          ${status === 'Up to Date' ? 'bg-green-100 text-green-700' : ''}
+                          ${status === 'Update Available' ? 'bg-amber-100 text-amber-700' : ''}
+                          ${status === 'Updating' ? 'bg-blue-100 text-blue-700' : ''}
+                          ${status === 'Failed' ? 'bg-red-100 text-red-700' : ''}
+                        `}>
+                          {status}
+                        </span>
+                        
+                        {status === 'Updating' && (
+                          <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1 max-w-[120px]">
+                            <div 
+                              className="bg-[#4F6EF7] h-1.5 rounded-full transition-all duration-500" 
+                              style={{ width: `${updatingDevices[device.id]}%` }}
+                            ></div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      {isAdmin && status !== 'Updating' && (
+                        <button 
+                          onClick={() => setPushModalDevice(device)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#4F6EF7] bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                        >
+                          ⬆️ Push
+                        </button>
+                      )}
+                      {status === 'Updating' && (
+                        <span className="text-sm text-gray-400 font-medium">Updating...</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {devices.length === 0 && (
+                <tr>
+                  <td colSpan="6" className="p-8 text-center text-gray-400">No devices found</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {isAdmin && pendingDevices.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-bold text-slate-100 mb-4 flex items-center gap-2">
-            Pending Device Approvals
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pendingDevices.map(pd => (
-              <div key={pd.id} className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-                <h4 className="font-bold text-slate-200">{pd.name || pd.id}</h4>
-                <p className="text-xs text-slate-400 mt-1">Vendor: {pd.vendor_id}</p>
-                <div className="flex gap-2 mt-4">
-                  <button onClick={() => handleApprove(pd.id)} className="flex-1 flex items-center justify-center gap-1 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 py-1.5 rounded-lg text-sm transition-colors">
-                    <Check size={16} /> Approve
-                  </button>
-                  <button onClick={() => handleReject(pd.id)} className="flex-1 flex items-center justify-center gap-1 bg-red-500/10 text-red-500 hover:bg-red-500/20 py-1.5 rounded-lg text-sm transition-colors">
-                    <X size={16} /> Reject
-                  </button>
-                </div>
+      {/* Firmware Select Modal */}
+      {pushModalDevice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-lg font-bold text-gray-800">Select Firmware</h3>
+              <button onClick={() => setPushModalDevice(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-5 overflow-y-auto">
+              <p className="text-sm text-gray-600 mb-4">
+                Select a firmware version to push to <span className="font-semibold text-gray-800">{pushModalDevice.name || pushModalDevice.id}</span>
+              </p>
+              
+              <div className="space-y-3">
+                {firmwares.length > 0 ? (
+                  firmwares.map(fw => (
+                    <div key={fw.id} className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3 hover:border-[#4F6EF7]/30 transition-colors">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-semibold text-gray-800">{fw.name || 'Unnamed Firmware'}</h4>
+                          <p className="text-sm text-gray-500">Version: {fw.version}</p>
+                          <p className="text-xs text-gray-400 mt-1">Platform: {fw.platform}</p>
+                        </div>
+                        <button 
+                          onClick={() => setCodeModalFirmware(fw)}
+                          className="text-xs text-[#4F6EF7] font-medium hover:underline"
+                        >
+                          View Code
+                        </button>
+                      </div>
+                      
+                      <button 
+                        onClick={() => handlePushOTA(fw.id, pushModalDevice.id)}
+                        className="w-full py-2 bg-[#4F6EF7]/10 text-[#4F6EF7] hover:bg-[#4F6EF7]/20 font-medium rounded-lg text-sm transition-colors mt-2"
+                      >
+                        Push this version
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-gray-500 text-center py-4">No firmwares available</p>
+                )}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       )}
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <form onSubmit={handleSaveFirmware} className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2"><Code size={20} /> Create Firmware</h3>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
+      {/* Firmware Code Modal */}
+      {codeModalFirmware && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-lg font-bold text-gray-800">Firmware Code (.ino)</h3>
+              <button onClick={() => setCodeModalFirmware(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                ✕
+              </button>
             </div>
-            <div className="p-6 overflow-y-auto space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Name</label>
-                  <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
+            
+            <div className="p-5 overflow-y-auto flex-1">
+              <div className="mb-4">
+                <h4 className="font-semibold text-gray-800">{codeModalFirmware.name || 'Unnamed Firmware'} <span className="text-gray-500 font-normal">v{codeModalFirmware.version}</span></h4>
+              </div>
+              
+              {codeModalFirmware.source_code ? (
+                <textarea 
+                  readOnly 
+                  value={codeModalFirmware.source_code} 
+                  className="w-full h-64 bg-gray-50 border border-gray-200 rounded-lg p-4 font-mono text-xs text-gray-700 focus:outline-none resize-none"
+                />
+              ) : (
+                <div className="w-full py-12 bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center">
+                  <p className="text-gray-500 text-sm">No source code available for this firmware.</p>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-400 mb-1">Version</label>
-                  <input required value={formData.version} onChange={e => setFormData({...formData, version: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Platform</label>
-                <select value={formData.platform} onChange={handlePlatformChange} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500">
-                  <option value="Arduino">Arduino</option>
-                  <option value="ESP32">ESP32</option>
-                  <option value="ESP8266">ESP8266</option>
-                  <option value="Raspberry Pi">Raspberry Pi</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Description</label>
-                <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500 min-h-[60px]" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">Source Code Template</label>
-                <textarea value={formData.source_code} onChange={e => setFormData({...formData, source_code: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-green-400 font-mono text-xs focus:outline-none focus:border-blue-500 min-h-[200px]" />
-              </div>
+              )}
             </div>
-            <div className="p-4 border-t border-slate-800 flex justify-end gap-3">
-              <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800">Cancel</button>
-              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">Save Firmware</button>
+            
+            <div className="p-5 border-t border-gray-100 flex justify-end gap-3 bg-gray-50/50">
+              {codeModalFirmware.source_code && (
+                <>
+                  <button 
+                    onClick={() => handleCopyCode(codeModalFirmware.source_code)}
+                    className="px-4 py-2 rounded-xl text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 font-medium text-sm transition-colors"
+                  >
+                    Copy
+                  </button>
+                  <button 
+                    onClick={() => handleDownloadCode(codeModalFirmware)}
+                    className="px-4 py-2 rounded-xl text-white bg-[#4F6EF7] hover:bg-[#4F6EF7]/90 font-medium text-sm shadow-sm transition-colors"
+                  >
+                    Download (.ino)
+                  </button>
+                </>
+              )}
             </div>
-          </form>
+          </div>
         </div>
       )}
 
-      {isPushModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <form onSubmit={handlePushOTA} className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md overflow-hidden">
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2"><Play size={20} /> Push OTA Update</h3>
-              <button type="button" onClick={() => setIsPushModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20} /></button>
-            </div>
-            <div className="p-6">
-              <label className="block text-xs font-semibold text-slate-400 mb-1">Target Device ID</label>
-              <input required value={pushData.deviceId} onChange={e => setPushData({...pushData, deviceId: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-blue-500" placeholder="e.g. DEV-1234" />
-            </div>
-            <div className="p-4 border-t border-slate-800 flex justify-end gap-3">
-              <button type="button" onClick={() => setIsPushModalOpen(false)} className="px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800">Cancel</button>
-              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium">Push Update</button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 }

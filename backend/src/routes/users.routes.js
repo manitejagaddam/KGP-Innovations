@@ -27,7 +27,6 @@ router.get('/', async (req, res) => {
     if (error) throw error;
 
     res.json({ data, meta: { total: count, page, limit } });
-    res.json({ data, meta: { total: count, page, limit } });
   } catch (err) {
     console.error('GET /api/users error:', err);
     res.status(500).json({ error: 'Failed to fetch users' });
@@ -44,7 +43,6 @@ router.get('/:id', async (req, res) => {
       .single();
 
     if (error) throw error;
-    res.json(data);
     res.json(data);
   } catch (err) {
     console.error('GET /api/users/:id error:', err);

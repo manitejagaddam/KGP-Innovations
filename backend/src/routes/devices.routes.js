@@ -23,7 +23,9 @@ router.get('/', async (req, res) => {
     const { page = 1, limit = 50, status } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    if (req.user.role === 'viewer') {
+    const userRole = (req.user.role || '').toLowerCase();
+
+    if (userRole === 'viewer') {
       // Get device IDs assigned to this user
       const { data: userDevices, error: udErr } = await supabase
         .from('user_devices')
@@ -41,7 +43,7 @@ router.get('/', async (req, res) => {
     }
 
     let query = supabase.from('devices').select('*, device_schedules(*)', { count: 'exact' });
-    if (req.user.role === 'Vendor') {
+    if (userRole === 'vendor') {
       if (!req.user.vendorId) {
         // Vendor with no assigned vendor group sees 0 devices
         return res.json({ data: [], meta: { total: 0, page: parseInt(page), limit: parseInt(limit) } });
@@ -56,7 +58,7 @@ router.get('/', async (req, res) => {
     if (error) throw error;
     res.json({ data, meta: { total: count, page: parseInt(page), limit: parseInt(limit) } });
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -72,7 +74,7 @@ router.get('/pending', adminOnly, async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -104,7 +106,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ ...device, latest_telemetry: telemetry || null });
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -112,7 +114,7 @@ router.get('/:id', async (req, res) => {
 // POST / -> create device (Admin = approved, Vendor = pending approval)
 router.post('/', adminOrVendor, async (req, res) => {
   try {
-    const { name, location, lat, lng, type, mqtt_topic } = req.body;
+    const { name, location, lat, lng, type, mqtt_topic, connectivity } = req.body;
 
     if (!name) return res.status(400).json({ error: 'Device name is required' });
 
@@ -123,28 +125,24 @@ router.post('/', adminOrVendor, async (req, res) => {
     }
     
     const vendor_id = isAdmin ? (req.body.vendor_id || null) : req.user.vendorId;
-    const device_id = mqtt_topic || name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const device_id = mqtt_topic || name.toLowerCase().replace(/\\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
-    // Build insert payload — only include columns we know exist in the base schema
+    // Build insert payload
     const devicePayload = {
       id: device_id,
       name,
       location: location || null,
       type: type || null,
+      connectivity: connectivity || 'WiFi',
+      vendor_id: vendor_id,
+      approval_status: isAdmin ? 'approved' : 'pending',
+      mqtt_topic: mqtt_topic || device_id,
+      api_key: 'KGP-' + uuidv4().replace(/-/g, '').toUpperCase().substring(0, 16),
+      device_secret: uuidv4().replace(/-/g, '').toUpperCase(),
     };
 
-    // Add optional columns that require the migration to have been run
-    try {
-      devicePayload.vendor_id = vendor_id;
-      devicePayload.approval_status = isAdmin ? 'approved' : 'pending';
-      devicePayload.mqtt_topic = mqtt_topic || device_id;
-      devicePayload.api_key = 'KGP-' + uuidv4().replace(/-/g, '').toUpperCase().substring(0, 16);
-      devicePayload.device_secret = uuidv4().replace(/-/g, '').toUpperCase();
-      if (lat && lng) {
-        devicePayload.coordinates = { lat: parseFloat(lat), lng: parseFloat(lng) };
-      }
-    } catch (e) {
-      // ignore if any of these fail to assign
+    if (lat && lng) {
+      devicePayload.coordinates = { lat: parseFloat(lat), lng: parseFloat(lng) };
     }
 
     const { data, error } = await supabase
@@ -166,7 +164,6 @@ router.post('/', adminOrVendor, async (req, res) => {
   }
 });
 
-
 // PUT /:id/approve -> Admin only: approve or reject pending device
 router.put('/:id/approve', adminOnly, async (req, res) => {
   try {
@@ -178,7 +175,7 @@ router.put('/:id/approve', adminOnly, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: action === 'approve' ? 'APPROVE_DEVICE' : 'REJECT_DEVICE', targetId: id, targetType: 'device', ipAddress: req.ip });
     res.json(data);
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -197,7 +194,7 @@ router.put('/:id', adminOrVendor, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: 'UPDATE_DEVICE', targetId: id, targetType: 'device', ipAddress: req.ip });
     res.json(data);
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -211,7 +208,7 @@ router.delete('/:id', adminOnly, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: 'DELETE_DEVICE', targetId: id, targetType: 'device', ipAddress: req.ip });
     res.status(204).send();
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -229,7 +226,7 @@ router.post('/:id/command', adminOrVendor, async (req, res) => {
     await log({ userId: req.user.id, userEmail: req.user.email, action: 'POWER_COMMAND', targetId: id, targetType: 'device', reason, ipAddress: req.ip });
     res.json({ message: 'Command dispatched' });
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -243,7 +240,7 @@ router.put('/:id/schedule', adminOrVendor, async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -260,7 +257,7 @@ router.get('/:id/telemetry', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
@@ -273,7 +270,7 @@ router.get('/:id/logs', async (req, res) => {
     if (error) throw error;
     res.json(data);
   } catch (error) {
-    console.error('API Error in backend\src\routes\devices.routes.js:', error);
+    console.error('API Error in backend\\src\\routes\\devices.routes.js:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });

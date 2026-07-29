@@ -15,6 +15,7 @@ import analyticsRoutes from './routes/analytics.routes.js'
 import automationRoutes from './routes/automations.routes.js'
 import settingsRoutes from './routes/settings.routes.js'
 import firmwareRoutes from './routes/firmware.routes.js'
+import auditLogsRoutes from './routes/audit_logs.routes.js'
 
 dotenv.config()
 
@@ -68,6 +69,7 @@ app.use('/api/analytics', analyticsRoutes)
 app.use('/api/automations', automationRoutes)
 app.use('/api/settings', settingsRoutes)
 app.use('/api/firmware', firmwareRoutes)
+app.use('/api/audit_logs', auditLogsRoutes)
 
 // Health check
 app.get('/health', (req, res) => {

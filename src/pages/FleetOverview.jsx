@@ -1,519 +1,376 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useApp } from '../context/AppContext'
 import { useAuth } from '../context/AuthContext'
 import { devicesApi } from '../services/api'
-import { 
-  Activity, 
-  Lightbulb, 
-  AlertTriangle, 
-  BatteryCharging, 
-  Compass, 
-  ArrowRight,
-  TrendingUp,
-  MapPin,
-  Signal,
-  Plus,
-  Power,
-  Copy,
-  Check,
-  X,
-  Code
-} from 'lucide-react'
+import { getTypeInfo, getAllTypes } from '../config/deviceTypes'
 import { useToast } from '../components/Toast'
 
 export default function FleetOverview() {
-  const { devices, setDevices, alerts, setActiveTab, setSelectedDeviceId, loading, deviceError, executePowerControl, refreshDevices } = useApp()
+  const { devices, setDevices, alerts, setActiveTab, setSelectedDeviceId, loading, deviceError, refreshDevices } = useApp()
   const { user } = useAuth()
   const toast = useToast()
 
+  // ─── Filter State ───────────────────────────────────────────────
+  const [typeFilter, setTypeFilter] = useState('')      // device type key
+  const [statusFilter, setStatusFilter] = useState('')  // 'online' | 'offline'
+  const [connFilter, setConnFilter] = useState('')      // 'WiFi' | 'LTE'
+  const [alertFilter, setAlertFilter] = useState('')    // 'alert'
+  const [locationFilter, setLocationFilter] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // ─── Add Device Modal ───────────────────────────────────────────
   const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [addStep, setAddStep] = useState(1) // 1 = Form, 2 = Success
-  const [newDevice, setNewDevice] = useState({ id: '', type: 'Street Light', location: '', firmware: '1.0.0', description: '' })
-  const [generatedCreds, setGeneratedCreds] = useState({ apiKey: '', secret: '' })
-  const [activeCodeTab, setActiveCodeTab] = useState('arduino')
-  const [copied, setCopied] = useState(false)
+  const [newDevice, setNewDevice] = useState({
+    name: '', type: 'street_light', location: '',
+    vendor_id: '', connectivity: 'WiFi', mqtt_topic: ''
+  })
 
+  // ─── Stats ──────────────────────────────────────────────────────
   const totalCount = devices.length
-  const activeCount = devices.filter(d => d.power === 'ON' && d.connectionStatus === 'Connected').length
-  const offlineCount = devices.filter(d => d.connectionStatus === 'Disconnected').length
-  const warningCount = alerts.filter(a => a.status === 'New').length
+  const onlineCount = devices.filter(d => (d.connection_status || '').toLowerCase() === 'connected' || (d.status || '').toLowerCase() === 'online').length
+  const offlineCount = totalCount - onlineCount
+  const activeAlertCount = alerts?.filter(a => a.status === 'New').length || 0
 
+  // ─── Unique locations for filter ────────────────────────────────
+  const locations = useMemo(() => {
+    const locs = [...new Set(devices.map(d => d.location).filter(Boolean))]
+    return locs.sort()
+  }, [devices])
+
+  // ─── Device type counts ─────────────────────────────────────────
+  const typeCounts = useMemo(() => {
+    const counts = {}
+    devices.forEach(d => {
+      const t = d.device_type || d.type || 'street_light'
+      counts[t] = (counts[t] || 0) + 1
+    })
+    return counts
+  }, [devices])
+
+  // ─── Filtered devices ────────────────────────────────────────────
+  const filteredDevices = useMemo(() => {
+    return devices.filter(d => {
+      const devType = d.device_type || d.type || 'street_light'
+      const isOnline = (d.connection_status || '').toLowerCase() === 'connected' || (d.status || '').toLowerCase() === 'online'
+      const conn = d.connectivity || d.connection_type || ''
+      const hasAlert = alerts?.some(a => a.device_id === d.id && a.status === 'New')
+
+      if (typeFilter && devType !== typeFilter) return false
+      if (statusFilter === 'online' && !isOnline) return false
+      if (statusFilter === 'offline' && isOnline) return false
+      if (connFilter && conn !== connFilter) return false
+      if (alertFilter === 'alert' && !hasAlert) return false
+      if (locationFilter && d.location !== locationFilter) return false
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase()
+        if (!d.name?.toLowerCase().includes(q) && !d.location?.toLowerCase().includes(q)) return false
+      }
+      return true
+    })
+  }, [devices, alerts, typeFilter, statusFilter, connFilter, alertFilter, locationFilter, searchQuery])
+
+  // ─── Handlers ───────────────────────────────────────────────────
   const handleDeviceClick = (devId) => {
     setSelectedDeviceId(devId)
     setActiveTab('device-details')
   }
 
-  const handleTogglePower = (device) => {
-    const targetState = device.power === 'ON' ? 'OFF' : 'ON'
-    const res = executePowerControl(device.id, targetState, 'admin123', 'Dashboard quick toggle')
-    if (res.success) {
-      toast.success(`${device.name} turned ${targetState}`)
-    } else {
-      toast.error('Failed to control device')
-    }
-  }
-
   const handleAddDevice = async (e) => {
     e.preventDefault()
-    
-    const apiKey = `iot_live_${Math.random().toString(36).substr(2, 10)}${Math.random().toString(36).substr(2, 10)}`
-    const secret = `sec_${Math.random().toString(36).substr(2, 16)}`
-    setGeneratedCreds({ apiKey, secret })
-
-    const finalId = newDevice.id || `DEV-${Math.floor(1000 + Math.random() * 9000)}`
-    
-    const deviceObj = {
-      id: finalId,
-      name: finalId,
-      location: newDevice.location,
-      type: newDevice.type,
-      firmware: newDevice.firmware,
-      description: newDevice.description,
-      approval_status: user?.role === 'Vendor' ? 'pending' : 'approved',
-      vendor_id: user?.role === 'Vendor' ? user?.vendorId || user?.id : null
-    }
-    
     try {
+      const deviceObj = {
+        name: newDevice.name,
+        device_type: newDevice.type,
+        type: newDevice.type,
+        location: newDevice.location,
+        connectivity: newDevice.connectivity,
+        mqtt_topic: newDevice.mqtt_topic,
+        vendor_id: user?.role?.toLowerCase() === 'vendor' ? user?.vendorId : (newDevice.vendor_id || null),
+        approval_status: user?.role?.toLowerCase() === 'vendor' ? 'pending' : 'approved',
+      }
       await devicesApi.create(deviceObj)
+      toast.success(`Device "${newDevice.name}" added successfully`)
       if (refreshDevices) refreshDevices()
-      setAddStep(2)
+      setIsAddModalOpen(false)
+      setNewDevice({ name: '', type: 'street_light', location: '', vendor_id: '', connectivity: 'WiFi', mqtt_topic: '' })
     } catch (err) {
-      toast.error('Failed to create device')
+      toast.error('Failed to create device: ' + (err.message || 'Unknown error'))
     }
   }
 
-  const handleCloseModal = () => {
-    setIsAddModalOpen(false)
-    setAddStep(1)
-    setNewDevice({ id: '', type: 'Street Light', location: '', firmware: '1.0.0', description: '' })
-    setCopied(false)
-  }
+  const canAddDevice = user?.role?.toLowerCase() === 'admin' || user?.role?.toLowerCase() === 'vendor'
 
-  const copyCode = (text) => {
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-    toast.success('Copied to clipboard')
-  }
-
-  // Compute total energy consumption
-  const totalEnergy = devices.reduce((sum, d) => sum + (d.telemetry?.energy || d.latest_telemetry?.energy_kwh || 0), 0).toFixed(1)
+  // ─── Get all device types that appear in fleet ───────────────────
+  const usedTypes = getAllTypes().filter(t => typeCounts[t.key] > 0)
 
   if (loading) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-28 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800"></div>
-          ))}
+      <div className="space-y-4 animate-pulse">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-xl" />)}
         </div>
-        <div className="h-96 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800"></div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="h-44 bg-gray-100 rounded-xl" />)}
+        </div>
       </div>
-    );
-  }
-
-  if (deviceError) {
-    return (
-      <div className="p-8 text-center bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl border border-red-200 dark:border-red-800">
-        <AlertTriangle className="w-12 h-12 mx-auto mb-4" />
-        <h2 className="text-xl font-bold mb-2">Error Loading Devices</h2>
-        <p>{deviceError}</p>
-      </div>
-    );
+    )
   }
 
   return (
-    <div className="space-y-6">
-      
-      {/* 4 Summary Dashboard Widget Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        
-        {/* Widget 1: Total Devices */}
-        <div className="glass-card bg-white dark:bg-slate-900 p-5 flex items-center justify-between border-slate-200 dark:border-slate-800">
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Total Fleet</span>
-            <h3 className="font-outfit font-black text-3xl text-slate-850 dark:text-white">{totalCount}</h3>
-            <p className="text-[10px] font-semibold text-slate-400">Registered devices</p>
-          </div>
-          <div className="p-3 bg-blue-500/10 text-blue-500 rounded-2xl">
-            <Lightbulb size={24} className="fill-current" />
-          </div>
-        </div>
+    <div className="space-y-5 pb-10">
 
-        {/* Widget 2: Active Devices */}
-        <div className="glass-card bg-white dark:bg-slate-900 p-5 flex items-center justify-between border-slate-200 dark:border-slate-800">
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Active ON</span>
-            <h3 className="font-outfit font-black text-3xl text-emerald-500">{activeCount}</h3>
-            <p className="text-[10px] font-semibold text-emerald-500/80 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
-              Operational now
-            </p>
-          </div>
-          <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-2xl">
-            <Activity size={24} />
-          </div>
-        </div>
+      {/* ── 4 Stat Cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard label="Total Devices" value={totalCount} delta="All registered" icon="🧩" color="#4F6EF7" bg="#EEF1FE" />
+        <StatCard label="Online" value={onlineCount} delta={`${totalCount > 0 ? Math.round(onlineCount/totalCount*100) : 0}% uptime`} icon="✅" color="#0FA968" bg="#E7F8F0" />
+        <StatCard label="Offline" value={offlineCount} delta="Connection lost" icon="📴" color="#9CA3AF" bg="#F3F4F6" />
+        <StatCard label="Active Alerts" value={activeAlertCount} delta="Need attention" icon="⚠️" color={activeAlertCount > 0 ? '#E4483C' : '#9CA3AF'} bg={activeAlertCount > 0 ? '#FDECEB' : '#F3F4F6'} />
+      </div>
 
-        {/* Widget 3: Offline Devices */}
-        <div className="glass-card bg-white dark:bg-slate-900 p-5 flex items-center justify-between border-slate-200 dark:border-slate-800">
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Offline</span>
-            <h3 className="font-outfit font-black text-3xl text-slate-400 dark:text-slate-400">{offlineCount}</h3>
-            <p className="text-[10px] font-semibold text-slate-400">Connection lost</p>
-          </div>
-          <div className="p-3 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded-2xl">
-            <Compass size={24} />
-          </div>
+      {/* ── Section Head ── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-bold text-gray-900">Device Types</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Tap a type to filter the fleet below</p>
         </div>
-
-        {/* Widget 4: Alerts */}
-        <div className="glass-card bg-white dark:bg-slate-900 p-5 flex items-center justify-between border-slate-200 dark:border-slate-800">
-          <div className="space-y-1.5">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Active Alarms</span>
-            <h3 className="font-outfit font-black text-3xl text-red-500">{warningCount}</h3>
-            <p className="text-[10px] font-semibold text-red-500/80">Require attention</p>
-          </div>
-          <div className={`p-3 rounded-2xl
-            ${warningCount > 0 ? 'bg-red-500/10 text-red-500 animate-pulse' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}
+        {canAddDevice && (
+          <button
+            onClick={() => setIsAddModalOpen(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
           >
-            <AlertTriangle size={24} />
-          </div>
-        </div>
-
+            + Add Device
+          </button>
+        )}
       </div>
 
-      {/* Main Row: Devices Status List */}
-      <div className="glass-card bg-white dark:bg-slate-900 overflow-hidden border-slate-200 dark:border-slate-800 shadow-md">
-        <div className="p-5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
-          <div>
-            <h3 className="font-outfit font-bold text-base text-slate-900 dark:text-white">Device Fleet Registry</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Real-time listing of active smart street lights</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="px-2.5 py-0.5 bg-blue-500/10 text-blue-500 text-[10px] font-extrabold rounded-full uppercase tracking-wider hidden sm:inline-block">
-              Telemetry Live
-            </span>
-            {user?.role !== 'Worker' && (
-              <button 
-                onClick={() => setIsAddModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-blue-600/10"
-              >
-                <Plus size={14} strokeWidth={3} />
-                <span>Add Device</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-sm min-w-[700px]">
-            <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                <th className="p-4 pl-6">Device Name</th>
-                <th className="p-4">Location</th>
-                <th className="p-4">Operational Mode</th>
-                <th className="p-4">Voltage</th>
-                <th className="p-4">Temperature</th>
-                <th className="p-4">Network</th>
-                <th className="p-4 pr-6 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/40 text-slate-700 dark:text-slate-300">
-              {devices.map((device) => {
-                const isOnline = device.connectionStatus === 'Connected'
-                return (
-                  <tr key={device.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/10 font-medium">
-                    
-                    {/* Device Identifier */}
-                    <td className="p-4 pl-6">
-                      <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-xl shrink-0 border
-                          ${!isOnline 
-                            ? 'bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-850 text-slate-400' 
-                            : device.power === 'ON' 
-                              ? 'bg-blue-600/10 border-blue-500/30 text-blue-500' 
-                              : 'bg-amber-500/10 border-amber-500/30 text-amber-500'}`}
-                        >
-                          <Lightbulb size={16} />
-                        </div>
-                        <div className="flex flex-col">
-                          <button 
-                            onClick={() => handleDeviceClick(device.id)}
-                            className="font-bold text-slate-900 dark:text-white leading-tight text-left hover:text-blue-500 transition-colors"
-                          >
-                            {device.name}
-                          </button>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-semibold mt-0.5 tracking-wider">
-                            ID: {device.id.substring(0, 15)}...
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Location */}
-                    <td className="p-4">
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-                        <MapPin size={12} className="text-slate-400" />
-                        <span>{device.location}</span>
-                      </div>
-                    </td>
-
-                    {/* Operational Power State */}
-                    <td className="p-4">
-                      {user?.role !== 'Worker' ? (
-                        <button 
-                          onClick={() => handleTogglePower(device)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase transition-all shadow-sm
-                          ${device.power === 'ON' 
-                            ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-emerald-500/20' 
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
-                          title="Toggle Power"
-                        >
-                          <Power size={12} />
-                          {device.power}
-                        </button>
-                      ) : (
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold uppercase
-                          ${device.power === 'ON' 
-                            ? 'bg-emerald-500/20 text-emerald-500' 
-                            : 'bg-slate-800 text-slate-400'}`}
-                        >
-                          {device.power}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Voltage Telemetry */}
-                    <td className="p-4 font-mono text-xs">
-                      {isOnline ? `${(device.telemetry?.voltage ?? device.latest_telemetry?.voltage ?? 0).toFixed(1)} V` : '—'}
-                    </td>
-
-                    {/* Temperature Telemetry */}
-                    <td className="p-4 font-mono text-xs">
-                      <span className={(device.telemetry?.temperature ?? device.latest_telemetry?.temperature_c ?? 0) > 60.0 ? 'text-red-500 font-bold' : ''}>
-                        {(device.telemetry?.temperature ?? device.latest_telemetry?.temperature_c ?? 0).toFixed(1)} °C
-                      </span>
-                    </td>
-
-                    {/* Network connectivity */}
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                          {isOnline ? `Online (${device.signalLevel})` : 'Offline'}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Navigation Link to Details */}
-                    <td className="p-4 pr-6 text-center">
-                      <button
-                        onClick={() => handleDeviceClick(device.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold border border-slate-200 dark:border-slate-850 rounded-xl text-slate-600 dark:text-slate-300 transition-all cursor-pointer"
-                      >
-                        <span>Details</span>
-                        <ArrowRight size={12} />
-                      </button>
-                    </td>
-
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Add Device Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl w-full max-w-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
-            
-            <div className="flex justify-between items-center p-5 border-b border-slate-100 dark:border-slate-800/80 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-500/10 text-blue-500 rounded-xl">
-                  {addStep === 1 ? <Plus size={20} /> : <Check size={20} className="text-emerald-500" />}
-                </div>
-                <h3 className="font-bold text-lg text-slate-900 dark:text-white">
-                  {addStep === 1 ? 'Add New Device' : 'Device Added Successfully!'}
-                </h3>
-              </div>
-              <button onClick={handleCloseModal} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto p-6 custom-scrollbar">
-              {addStep === 1 ? (
-                <form id="add-device-form" onSubmit={handleAddDevice} className="space-y-5">
-                  <div className="p-3 bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs rounded-xl flex items-start gap-2">
-                    <span className="shrink-0 mt-0.5">ℹ️</span>
-                    <p>
-                      Fill in the device details below. An API key will be generated for device authentication.
-                      {user?.role === 'Vendor' && " Note: Your devices will require Admin approval before going live."}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Device ID *</label>
-                    <input required type="text" value={newDevice.id} onChange={e => setNewDevice({...newDevice, id: e.target.value})} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 text-sm font-medium text-slate-800 dark:text-slate-200" placeholder="Unique identifier (e.g., light_001)" />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Device Type *</label>
-                    <select required value={newDevice.type} onChange={e => setNewDevice({...newDevice, type: e.target.value})} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 text-sm font-medium text-slate-800 dark:text-slate-200 appearance-none">
-                      <option value="Street Light">Street Light</option>
-                      <option value="Smart Meter">Smart Meter</option>
-                      <option value="Environmental Sensor">Environmental Sensor</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Location *</label>
-                    <input required type="text" value={newDevice.location} onChange={e => setNewDevice({...newDevice, location: e.target.value})} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 text-sm font-medium text-slate-800 dark:text-slate-200" placeholder="Physical location or zone" />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Firmware Version</label>
-                    <input type="text" value={newDevice.firmware} onChange={e => setNewDevice({...newDevice, firmware: e.target.value})} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 text-sm font-medium text-slate-800 dark:text-slate-200" placeholder="1.0.0" />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Description (Optional)</label>
-                    <textarea value={newDevice.description} onChange={e => setNewDevice({...newDevice, description: e.target.value})} className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-blue-500 text-sm font-medium text-slate-800 dark:text-slate-200 min-h-[80px]" placeholder="Additional notes..." />
-                  </div>
-                </form>
-              ) : (
-                <div className="space-y-6">
-                  {/* Credentials Section */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-900 dark:text-white mb-1.5">API Key</label>
-                      <p className="text-[10px] text-slate-500 mb-2">Save this key securely. You'll need it to authenticate your device.</p>
-                      <div className="flex items-center gap-2">
-                        <input readOnly type="text" value={generatedCreds.apiKey} className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-blue-500/30 rounded-xl focus:outline-none text-sm font-mono text-slate-800 dark:text-slate-200" />
-                        <button onClick={() => copyCode(generatedCreds.apiKey)} className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-600 dark:text-slate-300 transition-colors">
-                          <Copy size={16} />
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs font-bold text-slate-900 dark:text-white mb-1.5">Device Secret</label>
-                      <p className="text-[10px] text-slate-500 mb-2">Additional authentication credential for enhanced security.</p>
-                      <div className="flex items-center gap-2">
-                        <input readOnly type="text" value={generatedCreds.secret} className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none text-sm font-mono text-slate-800 dark:text-slate-200 opacity-80" />
-                        <button onClick={() => copyCode(generatedCreds.secret)} className="p-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl text-slate-600 dark:text-slate-300 transition-colors">
-                          <Copy size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Integration Code Section */}
-                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Integration Code</h4>
-                      <button onClick={() => copyCode(`// Generated Arduino Code for ${newDevice.id}...`)} className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded-lg">
-                        <Copy size={12} /> Copy Code
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-6 border-b border-slate-200 dark:border-slate-800 mb-4 text-xs font-semibold">
-                      <button onClick={() => setActiveCodeTab('arduino')} className={`pb-2 border-b-2 transition-colors ${activeCodeTab === 'arduino' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Street Light (Full Arduino)</button>
-                      <button onClick={() => setActiveCodeTab('python')} className={`pb-2 border-b-2 transition-colors ${activeCodeTab === 'python' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Python / Raspberry Pi</button>
-                      <button onClick={() => setActiveCodeTab('simple')} className={`pb-2 border-b-2 transition-colors ${activeCodeTab === 'simple' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>Simple Arduino Template</button>
-                    </div>
-
-                    <div className="bg-slate-950 rounded-xl border border-slate-800 overflow-hidden">
-                      <div className="p-4 text-[11px] font-mono text-emerald-400 whitespace-pre-wrap overflow-x-auto">
-                        {activeCodeTab === 'arduino' && (
-`#define TINY_GSM_MODEM_SIM7600
-#include <TinyGsmClient.h>
-#include <PubSubClient.h>
-#include <ArduinoJson.h>
-
-const char* API_KEY = "${generatedCreds.apiKey}";
-const char* SECRET = "${generatedCreds.secret}";
-const char* DEVICE_ID = "${newDevice.id || 'DEV-XYZ'}";
-
-// Setup MQTT Client...
-void setup() {
-  Serial.begin(115200);
-  // Initialize Sensors
-}
-
-void loop() {
-  // Read Telemetry
-  // Publish to topic: devices/${newDevice.id}/telemetry
-}`
-                        )}
-                        {activeCodeTab === 'python' && (
-`import paho.mqtt.client as mqtt
-import json
-import time
-
-API_KEY = "${generatedCreds.apiKey}"
-SECRET = "${generatedCreds.secret}"
-DEVICE_ID = "${newDevice.id || 'DEV-XYZ'}"
-
-def on_connect(client, userdata, flags, rc):
-    print("Connected to IoT Core")
-
-client = mqtt.Client(client_id=DEVICE_ID)
-client.username_pw_set(API_KEY, SECRET)
-client.connect("mqtt.kgpinnovation.com", 8883, 60)
-
-client.loop_start()
-while True:
-    payload = {"v": 230.5, "a": 4.2}
-    client.publish(f"devices/{DEVICE_ID}/telemetry", json.dumps(payload))
-    time.sleep(5)
-`
-                        )}
-                        {activeCodeTab === 'simple' && (
-`// Minimal ESP32 Template
-#include <WiFi.h>
-#include <PubSubClient.h>
-
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PWD";
-
-const char* mqtt_server = "mqtt.kgpinnovation.com";
-const char* api_key = "${generatedCreds.apiKey}";
-const char* api_secret = "${generatedCreds.secret}";
-
-void setup() {
-  // Connect WiFi & MQTT
-}
-
-void loop() {
-  // Main logic
-}
-`
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="p-5 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50 dark:bg-slate-950/50 flex gap-3 justify-end shrink-0">
-              {addStep === 1 ? (
-                <>
-                  <button type="button" onClick={handleCloseModal} className="px-5 py-2 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-xl transition-colors">Cancel</button>
-                  <button form="add-device-form" type="submit" className="px-5 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors shadow-lg shadow-blue-500/20">Generate API Key & Add Device</button>
-                </>
-              ) : (
-                <button onClick={handleCloseModal} className="px-5 py-2 text-sm font-bold text-slate-600 dark:text-slate-400 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl transition-colors">Close Dashboard</button>
-              )}
-            </div>
-          </div>
+      {/* ── Device Type Chips ── */}
+      {usedTypes.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setTypeFilter('')}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold transition-all
+              ${!typeFilter ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-blue-300'}`}
+          >
+            All <span className="opacity-70">{totalCount}</span>
+          </button>
+          {usedTypes.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTypeFilter(typeFilter === t.key ? '' : t.key)}
+              style={typeFilter === t.key ? { background: t.color, borderColor: t.color, color: '#fff' } : { borderColor: '#E7E9F0' }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-bold transition-all bg-white text-gray-600`}
+            >
+              <span>{t.icon}</span>
+              <span>{t.label}</span>
+              <span style={{ opacity: 0.7 }}>{typeCounts[t.key]}</span>
+            </button>
+          ))}
         </div>
       )}
 
+      {/* ── Filters Bar ── */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <input
+          type="text"
+          placeholder="Search devices or locations..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white text-gray-800 outline-none focus:border-blue-400 min-w-[200px]"
+        />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white text-gray-700 outline-none">
+          <option value="">All Status</option>
+          <option value="online">Online</option>
+          <option value="offline">Offline</option>
+        </select>
+        <select value={connFilter} onChange={e => setConnFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white text-gray-700 outline-none">
+          <option value="">WiFi + LTE</option>
+          <option value="WiFi">WiFi only</option>
+          <option value="LTE">LTE only</option>
+        </select>
+        <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white text-gray-700 outline-none">
+          <option value="">All Locations</option>
+          {locations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
+        </select>
+        <select value={alertFilter} onChange={e => setAlertFilter(e.target.value)} className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white text-gray-700 outline-none">
+          <option value="">All Devices</option>
+          <option value="alert">Needs Attention</option>
+        </select>
+        {(typeFilter || statusFilter || connFilter || alertFilter || locationFilter || searchQuery) && (
+          <button onClick={() => { setTypeFilter(''); setStatusFilter(''); setConnFilter(''); setAlertFilter(''); setLocationFilter(''); setSearchQuery('') }}
+            className="px-3 py-2 rounded-xl border border-gray-200 text-sm bg-white text-gray-500 hover:text-red-500 transition-colors">
+            ✕ Clear
+          </button>
+        )}
+      </div>
+
+      {/* ── Device Card Grid ── */}
+      {filteredDevices.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <div className="text-5xl mb-3">📭</div>
+          <p className="font-semibold">No devices match your filters</p>
+          <p className="text-sm mt-1">Try adjusting or clearing your filter criteria</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {filteredDevices.map(device => (
+            <DeviceCard
+              key={device.id}
+              device={device}
+              alerts={alerts}
+              onClick={() => handleDeviceClick(device.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Add Device Modal ── */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">🧩 Add New Device</h3>
+            <form onSubmit={handleAddDevice} className="space-y-4">
+              <Field label="Device Type *">
+                <select
+                  required
+                  value={newDevice.type}
+                  onChange={e => setNewDevice({ ...newDevice, type: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none"
+                >
+                  {getAllTypes().map(t => (
+                    <option key={t.key} value={t.key}>{t.icon} {t.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Device Name *">
+                <input required value={newDevice.name} onChange={e => setNewDevice({ ...newDevice, name: e.target.value })}
+                  placeholder="e.g. MAIN-STREET-LIGHT-01" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none" />
+              </Field>
+              <Field label="Location *">
+                <input required value={newDevice.location} onChange={e => setNewDevice({ ...newDevice, location: e.target.value })}
+                  placeholder="e.g. Bhimavaram" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none" />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Connectivity">
+                  <select value={newDevice.connectivity} onChange={e => setNewDevice({ ...newDevice, connectivity: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none">
+                    <option value="WiFi">WiFi</option>
+                    <option value="LTE">LTE</option>
+                  </select>
+                </Field>
+                <Field label="MQTT Topic">
+                  <input value={newDevice.mqtt_topic} onChange={e => setNewDevice({ ...newDevice, mqtt_topic: e.target.value })}
+                    placeholder="devices/id/telemetry" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none" />
+                </Field>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={() => setIsAddModalOpen(false)}
+                  className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button type="submit"
+                  className="px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all">
+                  Add Device
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Sub-components ────────────────────────────────────────────────
+
+function StatCard({ label, value, delta, icon, color, bg }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-gray-400">{label}</span>
+        <span className="text-xl">{icon}</span>
+      </div>
+      <div className="text-2xl font-black" style={{ color }}>{value}</div>
+      <div className="text-xs font-semibold mt-1" style={{ color, opacity: 0.75 }}>{delta}</div>
+    </div>
+  )
+}
+
+function DeviceCard({ device, alerts, onClick }) {
+  const typeKey = device.device_type || device.type || 'street_light'
+  const typeInfo = getTypeInfo(typeKey)
+  const isOnline = (device.connection_status || '').toLowerCase() === 'connected' || (device.status || '').toLowerCase() === 'online'
+  const isPowered = (device.power || '').toUpperCase() === 'ON' || isOnline
+  const hasAlert = alerts?.some(a => a.device_id === device.id && a.status === 'New')
+
+  // Primary metric from telemetry or latest_telemetry
+  const telemetry = device.latest_telemetry || device.telemetry || {}
+  const primaryKey = typeInfo.primary
+  const primaryVal = telemetry[primaryKey] ?? '—'
+  const primaryUnit = typeInfo.primaryUnit || ''
+
+  return (
+    <div
+      onClick={onClick}
+      className="bg-white rounded-xl border border-gray-100 shadow-sm hover:border-blue-400 hover:shadow-md transition-all cursor-pointer p-4"
+    >
+      {/* Top Row */}
+      <div className="flex justify-between items-start gap-2 mb-3">
+        <div
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0"
+          style={{ background: typeInfo.bg }}
+        >
+          {typeInfo.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-bold text-sm text-gray-900 truncate">{device.name}</div>
+          <div className="text-xs text-gray-400 truncate">{device.location || '—'}</div>
+        </div>
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOnline ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+            {isOnline ? 'Online' : 'Offline'}
+          </span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isPowered ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+            {isPowered ? 'ON' : 'OFF'}
+          </span>
+          {hasAlert && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-600">Alert</span>
+          )}
+        </div>
+      </div>
+
+      {/* Primary Metric */}
+      <div className="text-center my-3 py-2 rounded-lg" style={{ background: typeInfo.bg }}>
+        <div className="text-2xl font-black" style={{ color: typeInfo.color }}>
+          {typeof primaryVal === 'number' ? Number(primaryVal).toFixed(primaryKey === 'pf' ? 2 : 1) : primaryVal}
+          <span className="text-xs font-semibold ml-1 opacity-70">{primaryUnit}</span>
+        </div>
+        <div className="text-[10px] font-bold uppercase tracking-wider mt-0.5" style={{ color: typeInfo.color, opacity: 0.7 }}>
+          {typeInfo.primaryLabel}
+        </div>
+      </div>
+
+      {/* Mini metrics grid (first 2 metrics) */}
+      {typeInfo.metrics && typeInfo.metrics.length > 0 && (
+        <div className="grid grid-cols-2 gap-1.5 mt-2">
+          {typeInfo.metrics.slice(0, 2).map(m => (
+            <div key={m.k} className="bg-gray-50 rounded-lg px-2 py-1.5 text-center">
+              <div className="text-xs font-bold text-gray-800">
+                {m.text ? (telemetry[m.k] ?? '—') : (telemetry[m.k] !== undefined ? Number(telemetry[m.k]).toFixed(m.dec ?? 0) : '—')}{m.text ? '' : ` ${m.u}`}
+              </div>
+              <div className="text-[9px] text-gray-400 font-semibold">{m.l}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">{label}</label>
+      {children}
     </div>
   )
 }

@@ -366,21 +366,21 @@ export default function DeviceDetails() {
                   {/* ON */}
                   <div className="text-center">
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Turn ON</p>
-                    <p className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 mt-1">{selectedDevice.schedule.turnOn}</p>
+                    <p className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 mt-1">{selectedDevice.schedule?.turnOn || '--:--'}</p>
                   </div>
                   {/* Active Hours Duration */}
                   <div className="text-center flex flex-col items-center justify-center border-x border-slate-200 dark:border-slate-800">
-                    <p className="text-xs font-extrabold text-blue-500 leading-none">{selectedDevice.schedule.duration}</p>
+                    <p className="text-xs font-extrabold text-blue-500 leading-none">{selectedDevice.schedule?.duration || '0h'}</p>
                     <span className={`px-1.5 py-px mt-1.5 text-[8px] font-extrabold uppercase rounded
-                      ${selectedDevice.schedule.status === 'Active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}
+                      ${selectedDevice.schedule?.status === 'Active' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'}`}
                     >
-                      {selectedDevice.schedule.status}
+                      {selectedDevice.schedule?.status || 'Inactive'}
                     </span>
                   </div>
                   {/* OFF */}
                   <div className="text-center">
                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Turn OFF</p>
-                    <p className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 mt-1">{selectedDevice.schedule.turnOff}</p>
+                    <p className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 mt-1">{selectedDevice.schedule?.turnOff || '--:--'}</p>
                   </div>
                 </div>
               </div>
@@ -397,7 +397,7 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Voltage</p>
                 <h4 className="font-outfit font-extrabold text-xl text-blue-500 mt-1">
-                  {isConnected ? `${selectedDevice.telemetry.voltage}V` : 'N/A'}
+                  {isConnected ? `${selectedDevice.telemetry?.voltage ?? 0}V` : 'N/A'}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Volts</p>
               </div>
@@ -409,7 +409,7 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Frequency</p>
                 <h4 className="font-outfit font-extrabold text-xl text-amber-500 mt-1">
-                  {isConnected ? `${selectedDevice.telemetry.frequency.toFixed(1)}` : 'N/A'}
+                  {isConnected ? `${selectedDevice.telemetry?.frequency?.toFixed(1) ?? 50.0}` : 'N/A'}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Hz</p>
               </div>
@@ -421,7 +421,7 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Current</p>
                 <h4 className="font-outfit font-extrabold text-xl text-blue-500 mt-1">
-                  {isConnected ? `${selectedDevice.telemetry.current.toFixed(2)}` : 'N/A'}
+                  {isConnected ? `${selectedDevice.telemetry?.current?.toFixed(2) ?? 0.00}` : 'N/A'}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Amps</p>
               </div>
@@ -433,7 +433,7 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Energy</p>
                 <h4 className="font-outfit font-extrabold text-xl text-emerald-500 mt-1">
-                  {selectedDevice.telemetry.energy.toFixed(2)}
+                  {selectedDevice.telemetry?.energy?.toFixed(2) ?? 0.00}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">kWh</p>
               </div>
@@ -445,7 +445,7 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Power Factor</p>
                 <h4 className="font-outfit font-extrabold text-xl text-blue-500 mt-1">
-                  {isConnected ? `${selectedDevice.telemetry.powerFactor.toFixed(2)}` : 'N/A'}
+                  {isConnected ? `${selectedDevice.telemetry?.powerFactor?.toFixed(2) ?? 0.95}` : 'N/A'}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">PF</p>
               </div>
@@ -457,7 +457,7 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Power Load</p>
                 <h4 className="font-outfit font-extrabold text-xl text-emerald-500 mt-1">
-                  {isConnected ? `${selectedDevice.telemetry.powerLoad}` : 'N/A'}
+                  {isConnected ? `${selectedDevice.telemetry?.powerLoad ?? 0}` : 'N/A'}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Watts</p>
               </div>
@@ -465,19 +465,19 @@ export default function DeviceDetails() {
 
             {/* Card 7: Temperature */}
             <div className={`glass-card p-5 flex flex-col justify-between h-36 border transition-colors
-              ${selectedDevice.telemetry.temperature > 60.0 
+              ${selectedDevice.telemetry?.temperature > 60.0 
                 ? 'bg-red-500/5 border-red-500/30' 
                 : 'bg-white dark:bg-slate-900'}`}
             >
               <Thermometer className={`w-8 h-8 
-                ${selectedDevice.telemetry.temperature > 60.0 ? 'text-red-500' : 'text-amber-500'}`} 
+                ${selectedDevice.telemetry?.temperature > 60.0 ? 'text-red-500' : 'text-amber-500'}`} 
               />
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Temperature</p>
                 <h4 className={`font-outfit font-extrabold text-xl mt-1
-                  ${selectedDevice.telemetry.temperature > 60.0 ? 'text-red-500 animate-pulse' : 'text-amber-500'}`}
+                  ${selectedDevice.telemetry?.temperature > 60.0 ? 'text-red-500' : 'text-orange-500'}`}
                 >
-                  {selectedDevice.telemetry.temperature}°
+                  {selectedDevice.telemetry?.temperature?.toFixed(1) ?? 35.0}°C
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">Celsius</p>
               </div>
@@ -485,7 +485,7 @@ export default function DeviceDetails() {
 
             {/* Card 8: Door Status */}
             <div className={`glass-card p-5 flex flex-col justify-between h-36 border transition-colors
-              ${selectedDevice.telemetry.doorStatus === 'OPEN' 
+              ${selectedDevice.telemetry?.doorStatus === 'OPEN' 
                 ? 'bg-red-500/5 border-red-500/30' 
                 : 'bg-white dark:bg-slate-900'}`}
             >
@@ -493,12 +493,12 @@ export default function DeviceDetails() {
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Door Status</p>
                 <h4 className={`font-outfit font-extrabold text-lg mt-1 uppercase
-                  ${selectedDevice.telemetry.doorStatus === 'OPEN' ? 'text-red-500 animate-pulse' : 'text-emerald-500'}`}
+                  ${selectedDevice.telemetry?.doorStatus === 'OPEN' ? 'text-red-500 animate-pulse' : 'text-emerald-500'}`}
                 >
-                  {selectedDevice.telemetry.doorStatus}
+                  {selectedDevice.telemetry?.doorStatus ?? 'CLOSED'}
                 </h4>
                 <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                  {selectedDevice.telemetry.doorStatus === 'OPEN' ? 'Tampered' : 'Secure'}
+                  {selectedDevice.telemetry?.doorStatus === 'OPEN' ? 'Tampered' : 'Secure'}
                 </p>
               </div>
             </div>
