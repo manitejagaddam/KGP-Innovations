@@ -75,11 +75,11 @@ export const authApi = {
     });
     return handleResponse(res);
   },
-  register: async (name, email, password) => {
+  register: async (name, email, password, role) => {
     const res = await fetch(`${API_URL}/api/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password })
+      body: JSON.stringify({ name, email, password, role })
     });
     return handleResponse(res);
   },
@@ -192,7 +192,8 @@ export const usersApi = {
     return handleResponse(res);
   },
   toggleStatus: async (id) => {
-    const res = await fetchWithAuth(`/api/users/${id}/status`, { method: 'PUT' });
+    // Backend route is PATCH /:id/status
+    const res = await fetchWithAuth(`/api/users/${id}/status`, { method: 'PATCH' });
     return handleResponse(res);
   }
 };
@@ -264,7 +265,8 @@ export const alertsApi = {
       return handleResponse(res);
     },
     toggle: async (id) => {
-      const res = await fetchWithAuth(`/api/alerts/rules/${id}/toggle`, { method: 'PUT' });
+      // Backend route is PATCH /rules/:ruleId/toggle
+      const res = await fetchWithAuth(`/api/alerts/rules/${id}/toggle`, { method: 'PATCH' });
       return handleResponse(res);
     }
   }
@@ -316,7 +318,8 @@ export const automationsApi = {
     return handleResponse(res);
   },
   toggle: async (id) => {
-    const res = await fetchWithAuth(`/api/automations/${id}/toggle`, { method: 'PUT' });
+    // Backend route is PATCH /:id/toggle
+    const res = await fetchWithAuth(`/api/automations/${id}/toggle`, { method: 'PATCH' });
     return handleResponse(res);
   }
 };

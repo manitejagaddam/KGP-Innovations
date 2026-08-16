@@ -1,89 +1,86 @@
-import supabase from '../config/supabase.js';
-import { broadcast } from './wsServer.js';
+import supabase from '../config/supabase.js'
+import { broadcast } from './wsServer.js'
 
-let cachedRules = [];
-let lastFetchTime = 0;
+let cachedRules  = []
+let lastFetchTime = 0
 
 async function getEnabledRules() {
-  const now = Date.now();
-  if (now - lastFetchTime > 60000) { // 60 seconds cache
+  const now = Date.now()
+  // Refresh cache every 60 seconds
+  if (now - lastFetchTime > 60_000) {
     const { data, error } = await supabase
       .from('alert_rules')
       .select('*')
-      .eq('enabled', true);
-      
+      .eq('enabled', true)
+
     if (!error && data) {
-      cachedRules = data;
-      lastFetchTime = now;
+      cachedRules   = data
+      lastFetchTime = now
     }
   }
-  return cachedRules;
+  return cachedRules
 }
 
 export async function evaluateAlertRules(device, telemetry) {
   try {
-    const rules = await getEnabledRules();
+    const rules = await getEnabledRules()
 
     for (const rule of rules) {
-      let metricValue = telemetry[rule.metric];
-      if (metricValue === undefined) continue;
+      const metricValue = telemetry[rule.metric]
+      if (metricValue === undefined || metricValue === null) continue
 
-      let isBreached = false;
-      const threshold = rule.threshold;
+      const threshold = rule.threshold
 
-      // evaluate condition (>, <, >=, <=, ==)
+      let isBreached = false
       switch (rule.condition) {
-        case '>': isBreached = metricValue > threshold; break;
-        case '<': isBreached = metricValue < threshold; break;
-        case '>=': isBreached = metricValue >= threshold; break;
-        case '<=': isBreached = metricValue <= threshold; break;
-        case '==': isBreached = metricValue == threshold; break;
+        case '>':  isBreached = Number(metricValue) >  Number(threshold); break
+        case '<':  isBreached = Number(metricValue) <  Number(threshold); break
+        case '>=': isBreached = Number(metricValue) >= Number(threshold); break
+        case '<=': isBreached = Number(metricValue) <= Number(threshold); break
+        case '==': isBreached = String(metricValue) === String(threshold); break
       }
 
-      if (isBreached) {
-        // Check if an active 'New' alert of same type already exists for this device
-        const { data: existingAlerts, error: fetchError } = await supabase
-          .from('alerts')
-          .select('id')
-          .eq('device_id', device.id)
-          .eq('rule_id', rule.id)
-          .eq('status', 'New')
-          .limit(1);
+      if (!isBreached) continue
 
-        if (fetchError) {
-          console.error('Error fetching existing alerts:', fetchError);
-          continue;
-        }
+      // Suppress duplicate: check if a 'New' alert for this rule + device already exists
+      const { data: existing } = await supabase
+        .from('alerts')
+        .select('id')
+        .eq('device_id', device.id)
+        .eq('rule_id', rule.id)
+        .eq('status', 'New')
+        .limit(1)
 
-        if (existingAlerts.length === 0) {
-          // Insert new alert
-          const newAlert = {
-            device_id: device.id,
-            rule_id: rule.id,
-            type: rule.name,
-            severity: rule.severity,
-            status: 'New',
-            message: `Rule breached: ${rule.metric} ${rule.condition} ${rule.threshold} (Actual: ${metricValue})`
-          };
+      if (existing && existing.length > 0) continue  // already active — skip
 
-          const { data: insertedAlert, error: insertError } = await supabase
-            .from('alerts')
-            .insert([newAlert])
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error('Error inserting new alert:', insertError);
-            continue;
-          }
-
-          // Broadcast alert via wsServer
-          broadcast('alert', insertedAlert);
-        }
+      // Insert new alert — includes rule_id and message (both columns now exist in schema)
+      const alertRow = {
+        device_id:       device.id,
+        rule_id:         rule.id,       // ← added: column now exists in schema
+        type:            rule.name,
+        severity:        rule.severity,
+        status:          'New',
+        message:         `${rule.metric} ${rule.condition} ${threshold} (Actual: ${metricValue})`, // ← added
+        triggered_value: String(metricValue)
       }
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('alerts')
+        .insert([alertRow])
+        .select()
+        .single()
+
+      if (insertErr) {
+        console.error('❌ Alert insert error:', insertErr.message)
+        continue
+      }
+
+      // Broadcast new alert to WebSocket clients
+      broadcast('alert', inserted)
+      console.log(`🔔 Alert: [${rule.severity}] ${rule.name} on device ${device.name}`)
     }
-  } catch (error) {
-    console.error('Error evaluating alert rules:', error);
+  } catch (err) {
+    console.error('❌ evaluateAlertRules error:', err.message)
   }
 }
 
@@ -93,12 +90,10 @@ export async function resolveStaleAlerts(deviceId) {
       .from('alerts')
       .update({ status: 'Resolved', resolved_reason: 'Device reconnected' })
       .eq('device_id', deviceId)
-      .eq('status', 'New');
-      
-    if (error) {
-      console.error('Error resolving stale alerts:', error);
-    }
-  } catch (error) {
-    console.error('Error in resolveStaleAlerts:', error);
+      .eq('status', 'New')
+
+    if (error) console.error('❌ resolveStaleAlerts error:', error.message)
+  } catch (err) {
+    console.error('❌ resolveStaleAlerts error:', err.message)
   }
 }

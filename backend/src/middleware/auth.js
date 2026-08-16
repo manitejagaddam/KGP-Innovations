@@ -3,8 +3,8 @@ import supabase from '../config/supabase.js'
 
 /**
  * JWT Authentication Middleware
- * Verifies the Bearer token from Authorization header,
- * loads the user profile from Supabase, and attaches it to req.user
+ * Verifies the Bearer token from the Authorization header,
+ * loads the latest user profile from Supabase, and attaches it to req.user.
  */
 export const authenticate = async (req, res, next) => {
   try {
@@ -26,47 +26,33 @@ export const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid token' })
     }
 
-    // Load user profile from Supabase to get latest role/status
+    // Load latest profile (catches role/status changes since token was issued)
     const { data: profile, error } = await supabase
       .from('user_profiles')
-      .select('id, display_name, role, kgp_id, status, vendor_id')
+      .select('id, email, display_name, role, kgp_id, status, vendor_id')
       .eq('id', decoded.sub)
       .single()
 
-    let finalProfile = profile;
-    if (error) {
-      const { data: basicProfile, error: basicErr } = await supabase
-        .from('user_profiles')
-        .select('id, display_name, role, status')
-        .eq('id', decoded.sub)
-        .single()
-      
-      if (basicErr || !basicProfile) {
-        return res.status(401).json({ error: 'User not found' })
-      }
-      finalProfile = { ...basicProfile, kgp_id: null, vendor_id: null };
-    }
-
-    if (!finalProfile) {
+    if (error || !profile) {
       return res.status(401).json({ error: 'User not found' })
     }
 
-    if (finalProfile.status === 'Inactive') {
+    if (profile.status === 'Inactive') {
       return res.status(403).json({ error: 'Account is deactivated' })
     }
 
     req.user = {
-      id: decoded.sub,
-      email: decoded.email,
-      role: finalProfile.role,
-      kgpId: finalProfile.kgp_id,
-      displayName: finalProfile.display_name,
-      vendorId: finalProfile.vendor_id
+      id:          decoded.sub,
+      email:       profile.email || decoded.email,
+      role:        profile.role,
+      kgpId:       profile.kgp_id,
+      displayName: profile.display_name,
+      vendorId:    profile.vendor_id
     }
 
     next()
   } catch (err) {
     console.error('Auth middleware error:', err)
-    res.status(500).json({ error: 'Internal server error during authentication' })
+    return res.status(500).json({ error: 'Internal server error during authentication' })
   }
 }

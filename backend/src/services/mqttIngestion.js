@@ -1,87 +1,87 @@
-import { subscribe } from '../config/mqtt.js';
-import supabase from '../config/supabase.js';
-import { evaluateAlertRules } from './alertEngine.js';
-import { broadcast } from './wsServer.js';
+import { subscribe } from '../config/mqtt.js'
+import supabase from '../config/supabase.js'
+import { evaluateAlertRules } from './alertEngine.js'
+import { broadcast } from './wsServer.js'
 
 export function startIngestion() {
-  subscribe('devices/+/telemetry', async (topic, message) => {
+  // mqtt.js calls callbacks as: cb(parsedPayload, topicString)
+  // parsedPayload is already a JS object — do NOT call .toString() / JSON.parse() on it again
+  subscribe('devices/+/telemetry', async (payload, topic) => {
     try {
-      const payloadStr = message.toString();
-      const payload = JSON.parse(payloadStr);
-      
-      // Extract device mqtt_topic from topic string (e.g. 'devices/gunupudi-street-light/telemetry' -> 'gunupudi-street-light')
-      const parts = topic.split('/');
-      if (parts.length < 3) return;
-      const deviceMqttTopic = parts[1];
+      // topic format: "devices/<mqtt_topic>/telemetry"
+      const parts = topic.split('/')
+      if (parts.length < 3) return
+      const deviceMqttTopic = parts[1]
 
-      // Look up device by mqtt_topic in devices table
+      // Resolve device by mqtt_topic slug
       const { data: device, error: deviceError } = await supabase
         .from('devices')
         .select('*')
         .eq('mqtt_topic', deviceMqttTopic)
-        .single();
+        .single()
 
       if (deviceError || !device) {
-        console.warn(`Device not found for mqtt_topic: ${deviceMqttTopic}`);
-        return;
+        console.warn(`⚠️  MQTT: No device found for mqtt_topic="${deviceMqttTopic}"`)
+        return
       }
 
-      // Map payload to telemetry fields
-      // {v=voltage, hz=frequency, a=current_a, kwh=energy_kwh, pf=power_factor, w=power_load_w, t=temperature_c, door=door_status}
-      const telemetryData = {
-        device_id: device.id,
-        voltage: payload.v || null,
-        frequency: payload.hz || null,
-        current_a: payload.a || null,
-        energy_kwh: payload.kwh || null,
-        power_factor: payload.pf || null,
-        power_load_w: payload.w || null,
-        temperature_c: payload.t || null,
-        door_status: payload.door !== undefined ? (payload.door ? 'Open' : 'Closed') : null,
-        timestamp: new Date().toISOString()
-      };
-
-      // Insert row into telemetry table
-      const { error: telemetryError } = await supabase
-        .from('telemetry')
-        .insert([telemetryData]);
-
-      if (telemetryError) {
-        console.error('Error inserting telemetry:', telemetryError);
+      // Payload field map:
+      // v=voltage, hz=frequency, a=current_a, kwh=energy_kwh,
+      // pf=power_factor, w=power_load_w, t=temperature_c,
+      // door=door_status (boolean → 'OPEN'/'CLOSED'), rssi=signal
+      const telemetryRow = {
+        device_id:    device.id,
+        recorded_at:  new Date().toISOString(),   // ← correct column name
+        voltage:      payload.v   !== undefined ? Number(payload.v)   : null,
+        frequency:    payload.hz  !== undefined ? Number(payload.hz)  : null,
+        current_a:    payload.a   !== undefined ? Number(payload.a)   : null,
+        energy_kwh:   payload.kwh !== undefined ? Number(payload.kwh) : null,
+        power_factor: payload.pf  !== undefined ? Number(payload.pf)  : null,
+        power_load_w: payload.w   !== undefined ? Number(payload.w)   : null,
+        temperature_c: payload.t  !== undefined ? Number(payload.t)   : null,
+        // CHECK constraint requires uppercase: 'OPEN' or 'CLOSED'
+        door_status:  payload.door !== undefined
+          ? (payload.door ? 'OPEN' : 'CLOSED')
+          : null,
+        raw_payload:  payload
       }
 
-      // Update devices table: status, power, connection_status, last_seen, signal_strength
+      // Insert telemetry row
+      const { error: telErr } = await supabase.from('telemetry').insert([telemetryRow])
+      if (telErr) console.error('❌ Telemetry insert error:', telErr.message)
+
+      // Update device live status
+      // CHECK constraints: status IN ('ACTIVE','INACTIVE'), connection_status IN ('Connected','Disconnected')
       const deviceUpdates = {
-        last_seen: new Date().toISOString(),
-        connection_status: 'Online',
-        // Example mapping, logic might differ based on actual requirements
-        status: 'Active',
-      };
-      
+        last_seen:         new Date().toISOString(),
+        connection_status: 'Connected',   // ← was 'Online', which breaks CHECK constraint
+        status:            'ACTIVE',       // ← was 'Active', must be uppercase
+      }
+
       if (payload.w !== undefined) {
-        deviceUpdates.power = payload.w > 0 ? 'ON' : 'OFF';
+        deviceUpdates.power = Number(payload.w) > 0 ? 'ON' : 'OFF'
       }
-      
       if (payload.rssi !== undefined) {
-        deviceUpdates.signal_strength = payload.rssi;
+        const rssi = Number(payload.rssi)
+        deviceUpdates.signal_strength = `${rssi}/31`
+        deviceUpdates.signal_level =
+          rssi >= 25 ? 'Excellent' :
+          rssi >= 15 ? 'Good' :
+          rssi >= 8  ? 'Fair' : 'Weak'
       }
 
-      await supabase
-        .from('devices')
-        .update(deviceUpdates)
-        .eq('id', device.id);
+      await supabase.from('devices').update(deviceUpdates).eq('id', device.id)
 
-      // Call evaluateAlertRules(device, telemetry) from alertEngine.js
-      await evaluateAlertRules(device, telemetryData);
+      // Evaluate alert rules
+      await evaluateAlertRules(device, telemetryRow)
 
-      // Broadcast updated telemetry to WebSocket clients
-      broadcast('telemetry', {
-        device_id: device.id,
-        ...telemetryData
-      });
+      // Broadcast live telemetry to WebSocket clients
+      broadcast('telemetry', { device_id: device.id, ...telemetryRow })
 
-    } catch (error) {
-      console.error('Error processing MQTT telemetry message:', error);
+    } catch (err) {
+      console.error('❌ MQTT ingestion error:', err.message)
     }
-  });
+  })
+
+  console.log('📡 Subscribed to devices/+/telemetry')
 }
